@@ -22,6 +22,7 @@ const { nanoid } = require('nanoid');
 const { applyTransforms, resetTransforms, findRootIndex } = require('./transform.cjs');
 const { prepareHosting } = require('./lib/hostingPrep.cjs');
 const { deriveRunId } = require('./lib/run-id.cjs');
+const { SETTINGS_CONFIG, getSetting, getAllSettings } = require('./lib/settings.cjs');
 
 const PORT = parseInt(process.env.GUI_PORT || '8090', 10);
 const BASE = path.join(__dirname,'downloaded_pages');
@@ -59,6 +60,20 @@ function push(line){
 function findRun(id){ return runs.find(r=>r.id===id); }
 
 function safeStat(p){ try { return fs.statSync(p); } catch { return null; } }
+
+/* ---------- Child Process Utilities ---------- */
+function attachChildProcessLoggers(child, logPrefix) {
+  child.stdout.on('data', d => d.toString().split(/\r?\n/).filter(Boolean).forEach(l => push(`[${logPrefix}] ${l}`)));
+  child.stderr.on('data', d => d.toString().split(/\r?\n/).filter(Boolean).forEach(l => push(`[${logPrefix}:ERR] ${l}`)));
+}
+
+function createJobExitHandler(jobId, jobType, onExit) {
+  return (code) => {
+    push(`[${jobType}_EXIT] id=${jobId} code=${code}`);
+    if (onExit) onExit(code);
+  };
+}
+
 function buildRunFromDir(dirName){
   const runDir=path.join(BASE,dirName);
   const mfPath=path.join(runDir,'manifest.json');
@@ -153,6 +168,11 @@ app.get('/api/logs',(req,res)=>{
 /* ---------- Debug ---------- */
 app.get('/api/debug/runs',(req,res)=> res.json({count:runs.length,runs}));
 app.get('/api/debug/job',(req,res)=> res.json({currentJob}));
+
+/* ---------- Settings Configuration ---------- */
+app.get('/api/settings', (req,res) => {
+  res.json({ settings: getAllSettings() });
+});
 
 /* ---------- finalizePartialManifest ---------- */
 function finalizePartialManifest(dir){
@@ -272,6 +292,34 @@ app.post('/api/stop-run',(req,res)=>{
   res.json({ ok:true, message:'Run stopped & finalized.' });
 });
 
+/* ---------- Stop Crawler ---------- */
+app.post('/api/stop-crawler',(req,res)=>{
+  if(!currentJob || !currentChildProc){
+    return res.status(400).json({error:'no crawler running'});
+  }
+  
+  // Create STOP file for crawler if it's a crawl-only or crawl phase
+  if(currentJob.phase === 'crawl-only' || currentJob.phase === 'crawl'){
+    const stopFile = path.join(currentJob.dir,'_crawl','STOP');
+    try {
+      fs.mkdirSync(path.dirname(stopFile), {recursive: true});
+      fs.writeFileSync(stopFile, 'STOP', 'utf8');
+      push(`[STOP_CRAWLER] Stop file created: ${stopFile}`);
+    } catch(e) {
+      push(`[STOP_CRAWLER_ERR] Failed to create stop file: ${e.message}`);
+    }
+  }
+  
+  // Also send SIGTERM as backup
+  try { 
+    currentChildProc.kill('SIGTERM'); 
+  } catch(e){ 
+    push('[STOP_CRAWLER_ERR] '+e.message); 
+  }
+  
+  res.json({ ok:true, message:'Crawler stop requested.' });
+});
+
 /* ---------- Crawl Only ---------- */
 app.post('/api/crawl',(req,res)=>{
   if (currentJob || startingJob) return res.status(400).json({error:'job running'});
@@ -309,10 +357,10 @@ app.post('/api/crawl',(req,res)=>{
   push(`[CRAWL_START] id=${id} seeds=${startUrls.length}`);
   const child=spawn('node',[CRAWLER],{ env });
   currentChildProc=child;
-  child.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C] '+l)));
-  child.stderr.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C:ERR] '+l)));
-  child.on('exit',code=>{
-    push(`[CRAWL_EXIT] id=${id} code=${code}`);
+  
+  attachChildProcessLoggers(child, 'C');
+  
+  child.on('exit', createJobExitHandler(id, 'CRAWL', (code) => {
     let seedsFile = path.join(dir,'_crawl','urls.txt');
     let stats=null;
     if(fs.existsSync(seedsFile)){
@@ -327,7 +375,7 @@ app.post('/api/crawl',(req,res)=>{
     }
     currentJob=null; currentChildProc=null;
     startingJob=false;
-  });
+  }));
   res.json({ ok:true, crawlId:id, dir });
 });
 
@@ -388,10 +436,10 @@ function launchArchiver(id, dir, seedsFile, options, startedAt){
   push(`[JOB_PHASE] archive start id=${id} target=${env.TARGET_PLATFORM}`);
   const child=spawn('node',[ARCHIVER,seedsFile,dir],{ env });
   currentChildProc=child;
-  child.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[A] '+l)));
-  child.stderr.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[A:ERR] '+l)));
-  child.on('exit',code=>{
-    push(`[JOB_EXIT] id=${id} code=${code}`);
+  
+  attachChildProcessLoggers(child, 'A');
+  
+  child.on('exit', createJobExitHandler(id, 'JOB', (code) => {
     let stats=null;
     const manifestPath=path.join(dir,'manifest.json');
     if(!fs.existsSync(manifestPath)){
@@ -431,7 +479,7 @@ function launchArchiver(id, dir, seedsFile, options, startedAt){
     }
     currentJob=null; currentChildProc=null;
     startingJob=false;
-  });
+  }));
 }
 
 /* ---------- RUN Endpoint ---------- */
@@ -609,12 +657,13 @@ app.post('/api/host-run',(req,res)=>{
 
   const env={ ...process.env, ARCHIVE_ROOT: run.dir, PORT:String(p), START_PATH:startPath };
   const child=spawn('node',[HOST_SERVER],{ env });
-  child.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[HOST] '+l)));
-  child.stderr.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[HOST:ERR] '+l)));
-  child.on('exit',code=>{
-    push('[HOST_EXIT] port='+p+' code='+code);
+  
+  attachChildProcessLoggers(child, 'HOST');
+  
+  child.on('exit', createJobExitHandler(p, 'HOST', (code) => {
     hosts.delete(p);
-  });
+  }));
+  
   hosts.set(p, { child, runId: run.id, startedAt: Date.now(), root: run.dir });
   push(`[HOST_START] pid=${child.pid} port=${p} root=${run.dir} runId=${run.id}`);
   res.json({ ok:true, url:`http://YOUR_SERVER_IP:${p}/`, runId:run.id, pid:child.pid, port:p });

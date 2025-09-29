@@ -50,7 +50,10 @@ legend{padding:0 .4rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.
     <label><input type="checkbox" id="optAggressive"> Aggressive Capture</label>
     <label><input type="checkbox" id="optScroll"> Scroll Passes=2</label>
   </div>
-  <button id="btnRun">Run Capture</button>
+  <div class="flex">
+    <button id="btnRun">Run Capture</button>
+    <button id="btnStopRun" class="button secondary" style="display:none;">Stop Run</button>
+  </div>
   <pre id="runLog"></pre>
 </section>
 
@@ -69,6 +72,7 @@ legend{padding:0 .4rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.
     <input id="hostRun" placeholder="Select run first" readonly>
     <input id="hostPort" value="8081" style="width:100px">
     <button id="btnHost">Host</button>
+    <button id="btnStopHost" class="button secondary" style="display:none;">Stop Host</button>
   </div>
   <div class="small">Server root will resolve desktop/mobile variants automatically.</div>
   <pre id="hostLog"></pre>
@@ -132,6 +136,7 @@ legend{padding:0 .4rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.
 </section>
 
 </main>
+<script src="/static/js/ui-helpers.js"></script>
 <script>
 let currentRun=null;
 let platforms=[];
@@ -214,6 +219,10 @@ $('#btnRun').addEventListener('click', async ()=>{
   if($('#optHeadless').checked) options.HEADLESS='true';
   if($('#optAggressive').checked) options.AGGRESSIVE_CAPTURE='true';
   if($('#optScroll').checked) options.SCROLL_PASSES='2';
+  
+  // Update button states
+  updateButtonStates(true, false);
+  
   const res=await fetch('/api/run',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -232,6 +241,10 @@ $('#btnRun').addEventListener('click', async ()=>{
 $('#btnHost').addEventListener('click', async ()=>{
   if(!currentRun){ alert('Select a run first'); return; }
   const port=$('#hostPort').value;
+  
+  // Update button states
+  updateButtonStates(false, true);
+  
   const res=await fetch('/api/host',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -330,6 +343,159 @@ document.querySelector('#hostingJobsTable').addEventListener('click', async e=>{
 });
 
 setInterval(pollHostingJobs,5000);
+
+// Initialize tooltips and stop functionality
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize tooltip system
+  if (window.UIHelpers) {
+    window.UIHelpers.createTooltipSystem();
+    initializeTooltips();
+  }
+  
+  // Initialize stop buttons
+  initializeStopButtons();
+  
+  // Load settings and apply tooltips
+  loadSettingsAndApplyTooltips();
+});
+
+// Stop button functionality
+function initializeStopButtons() {
+  const btnStopRun = $('#btnStopRun');
+  const btnStopHost = $('#btnStopHost');
+  
+  btnStopRun.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to stop the current run?')) return;
+    
+    try {
+      const res = await fetch('/api/stop-run', { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) {
+        $('#runLog').textContent = 'Run stopped successfully.';
+        btnStopRun.style.display = 'none';
+        $('#btnRun').disabled = false;
+      } else {
+        $('#runLog').textContent = 'Error stopping run: ' + (json.error || 'Unknown error');
+      }
+    } catch (e) {
+      $('#runLog').textContent = 'Error stopping run: ' + e.message;
+    }
+  });
+  
+  btnStopHost.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to stop the hosting server?')) return;
+    
+    try {
+      const res = await fetch('/api/host-stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: currentRun })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        $('#hostLog').textContent = 'Host stopped successfully.';
+        btnStopHost.style.display = 'none';
+        $('#btnHost').disabled = false;
+      } else {
+        $('#hostLog').textContent = 'Error stopping host: ' + (json.error || 'Unknown error');
+      }
+    } catch (e) {
+      $('#hostLog').textContent = 'Error stopping host: ' + e.message;
+    }
+  });
+}
+
+// Load settings configuration and apply tooltips
+async function loadSettingsAndApplyTooltips() {
+  try {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    const settings = data.settings;
+    
+    // Add tooltips to existing elements based on settings
+    if (window.UIHelpers) {
+      // Capture settings tooltips
+      window.UIHelpers.addHelpIcon($('#optProfiles').parentElement, settings.capture?.profiles?.tooltip || 'Device profiles to capture');
+      window.UIHelpers.addHelpIcon($('#optHeadless').parentElement, settings.capture?.headless?.tooltip || 'Run browser in headless mode');
+      window.UIHelpers.addHelpIcon($('#optAggressive').parentElement, settings.capture?.aggressiveCapture?.tooltip || 'Enable aggressive capture mode');
+      window.UIHelpers.addHelpIcon($('#optScroll').parentElement, settings.capture?.scrollPasses?.tooltip || 'Number of scroll passes');
+      
+      // Hosting settings tooltips
+      window.UIHelpers.addHelpIcon($('#includeMobile').parentElement, settings.hosting?.includeMobile?.tooltip || 'Include mobile variant');
+      window.UIHelpers.addHelpIcon($('#stripAnalytics').parentElement, settings.hosting?.stripAnalytics?.tooltip || 'Remove analytics tracking');
+      window.UIHelpers.addHelpIcon($('#serviceWorker').parentElement, settings.hosting?.serviceWorker?.tooltip || 'Include service worker');
+      window.UIHelpers.addHelpIcon($('#precompress').parentElement, settings.hosting?.precompress?.tooltip || 'Create compressed files');
+      window.UIHelpers.addHelpIcon($('#sitemap').parentElement, settings.hosting?.sitemap?.tooltip || 'Generate sitemap and robots.txt');
+      window.UIHelpers.addHelpIcon($('#createZip').parentElement, settings.hosting?.createZip?.tooltip || 'Create ZIP archive');
+    }
+  } catch (e) {
+    console.warn('Failed to load settings for tooltips:', e);
+  }
+}
+
+// Initialize basic tooltips for elements that don't have settings
+function initializeTooltips() {
+  if (!window.UIHelpers) return;
+  
+  // Add basic hints
+  const captureHint = window.UIHelpers.createHint(
+    'Capture Process',
+    'The capture process downloads and archives web pages for offline hosting. Select the appropriate options based on your needs.'
+  );
+  $('#run-launch').insertBefore(captureHint, $('#run-launch').querySelector('label'));
+  
+  const hostingHint = window.UIHelpers.createHint(
+    'Hosting',
+    'Host your captured content on a local server. The server will automatically handle desktop/mobile variants.'
+  );
+  $('#host').insertBefore(hostingHint, $('#host').querySelector('.flex'));
+}
+
+// Update button states during operations
+function updateButtonStates(running, hosting) {
+  const btnRun = $('#btnRun');
+  const btnStopRun = $('#btnStopRun');
+  const btnHost = $('#btnHost');
+  const btnStopHost = $('#btnStopHost');
+  
+  if (running) {
+    btnRun.disabled = true;
+    btnStopRun.style.display = 'inline-block';
+  } else {
+    btnRun.disabled = false;
+    btnStopRun.style.display = 'none';
+  }
+  
+  if (hosting) {
+    btnHost.disabled = true;
+    btnStopHost.style.display = 'inline-block';
+  } else {
+    btnHost.disabled = false;
+    btnStopHost.style.display = 'none';
+  }
+}
+
+// Enhanced polling to update button states
+async function enhancedPollStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const status = await res.json();
+    updateButtonStates(status.running, false);
+    
+    // Check hosting status
+    const hostRes = await fetch('/api/host-status');
+    if (hostRes.ok) {
+      const hostStatus = await hostRes.json();
+      updateButtonStates(status.running, hostStatus.active);
+    }
+  } catch (e) {
+    console.warn('Failed to poll status:', e);
+  }
+}
+
+// Poll status every 3 seconds
+setInterval(enhancedPollStatus, 3000);
+enhancedPollStatus(); // Initial call
 
 loadRuns();
 loadPlatforms();

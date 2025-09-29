@@ -39,7 +39,7 @@
   // ---------- Runs
   function renderRuns(list){
     runsBody.innerHTML = (list||[]).map(r=>{
-      const pages = r.stats?.pages ?? r.stats?.pagesCrawled ?? (r.pending?'…':'-');
+      const pages = r.stats?.pages ?? r.stats?.pagesCrawled ?? (r.pending?'ï¿½':'-');
       const fails = r.stats?.failures ?? 0;
       const assets = r.stats?.assets ?? '-';
       return `<tr data-run="${r.id}" class="${r.pending?'pending':''}">
@@ -198,7 +198,8 @@
       }).catch(e=>logHost('Host exception '+e.message));
   };
   id('btnStopHost').onclick=()=>{
-    fetch('/api/stop-host',{method:'POST'}).then(r=>r.json()).then(j=>{
+    fetch('/api/host-stop',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({runId:selectedRun})}).then(r=>r.json()).then(j=>{
       logHost('Stop host '+JSON.stringify(j)); id('btnStopHost').disabled=true;
     }).catch(e=>logHost('Stop host error '+e.message));
   };
@@ -213,7 +214,7 @@
   id('btnSuggest').onclick=()=>{
     if(!selectedRun) return logHP('No run selected');
     fetchJSON('/api/runs/'+selectedRun+'/prepare-suggestions').then(s=>{
-      logHP('Suggest: pages='+s.pages+' mobile='+s.hasMobile+' assets˜'+s.totalAssetsApprox+' analytics='+s.analyticsMatches);
+      logHP('Suggest: pages='+s.pages+' mobile='+s.hasMobile+' assetsï¿½'+s.totalAssetsApprox+' analytics='+s.analyticsMatches);
       id('hpMobile').checked=s.hasMobile;
       if(s.recommendations.stripAnalytics) id('hpStrip').checked=true;
       if(s.recommendations.precompress) id('hpCompress').checked=true;

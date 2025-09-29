@@ -1,0 +1,17 @@
+{
+  "name": "wrx-from-urls",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node wxr-from-urls.cjs --config wxr.config.json"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "fs-extra": "^11.2.0",
+    "he": "^1.2.0",
+    "node-fetch": "^2.7.0",
+    "slugify": "^1.6.6",
+    "uuid": "^9.0.1"
+  }
+}

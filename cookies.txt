@@ -1,0 +1,17 @@
+# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+adlbg.com	FALSE	/	TRUE	1772844761	wordpress_gdpr_first_time_url	https%3A%2F%2Fadlbg.com%2F
+adlbg.com	FALSE	/	TRUE	1772844761	wordpress_gdpr_first_time	true
+adlbg.com	FALSE	/	TRUE	1772844761	wordpress_gdpr_allowed_services	wordpress_gdpr_cookies_declined%2Cwordpress_gdpr_cookies_allowed%2C3021%2C3020
+adlbg.com	FALSE	/	TRUE	1772844761	wordpress_gdpr_cookies_allowed	true
+adlbg.com	FALSE	/	TRUE	1772844761	wordpress_gdpr_cookies_declined	false
+adlbg.com	FALSE	/	TRUE	1789069345	pll_language	bg
+.adlbg.com	TRUE	/	FALSE	1765309347	_fbp	fb.1.1757533347062.675990467578681087
+.adlbg.com	TRUE	/	FALSE	1757619747	_gid	GA1.2.2125566565.1757533348
+.adlbg.com	TRUE	/	FALSE	1757533407	_gat_UA-181728730-1	1
+.adlbg.com	TRUE	/	FALSE	1757533407	_gat_gtag_UA_181728730_1	1
+.adlbg.com	TRUE	/	FALSE	1792093348	_ga_5NTLXM822C	GS2.1.s1757533347$o2$g0$t1757533347$j60$l0$h0
+.adlbg.com	TRUE	/	FALSE	1792093348	_ga	GA1.1.959539777.1757292761
+.adlbg.com	TRUE	/	FALSE	1792093348	_ga_PEFPB6987W	GS2.1.s1757533348$o2$g0$t1757533348$j60$l0$h0

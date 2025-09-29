@@ -1,0 +1,39 @@
+<section class="card" id="prep-run-card" style="margin-top: 16px;">
+  <div class="card-header">Start Run (Pre‑mirror target)</div>
+  <div class="card-body">
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <div>
+        <label for="prepStartUrls">URLs (one per line)</label>
+        <textarea id="prepStartUrls" class="form-control" rows="3" placeholder="https://example.com/"></textarea>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div>
+          <label for="prepAutoDepth">Auto-expand depth</label>
+          <input id="prepAutoDepth" class="form-control" type="number" value="3" min="0" step="1" style="width:120px;">
+        </div>
+        <div>
+          <label for="prepAutoMax">Max pages</label>
+          <input id="prepAutoMax" class="form-control" type="number" value="150" min="1" step="1" style="width:140px;">
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin-top:24px;">
+          <input id="prepSameHost" type="checkbox" checked>
+          <label for="prepSameHost">same host</label>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin-top:24px;">
+          <input id="prepSubdomains" type="checkbox" checked>
+          <label for="prepSubdomains">include subdomains</label>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+        <label for="targetPlatform" style="min-width:150px;">Pre‑mirror target</label>
+        <select id="targetPlatform" class="form-select" style="max-width:260px;">
+          <option value="generic">Generic</option>
+          <option value="woocommerce">WooCommerce (WXR pages)</option>
+          <option value="shopify">Shopify (Liquid sections)</option>
+        </select>
+        <button id="startPrepRunBtn" class="btn btn-primary">Start Run</button>
+        <span id="startPrepRunStatus" style="color:#555;"></span>
+      </div>
+    </div>
+  </div>
+</section>

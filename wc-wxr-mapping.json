@@ -1,0 +1,44 @@
+{
+  "default": {
+    "product": {
+      "name": "meta[property='og:title']@content || h1[itemprop='name'] || h1",
+      "sku": ".sku || [itemprop='sku']@content || li:contains('SKU')@text || li:contains('Код')@text",
+      "price_regular": "meta[property='product:price:amount']@content || meta[itemprop='price']@content || .price [data-regular]@data-regular || .price .amount || .price",
+      "price_sale": "meta[property='product:sale_price:amount']@content || .price .sale || .price .onsale",
+      "description_html": "#description || .product-description || .description || .product-details || [itemprop='description']",
+      "short_description_html": ".short-description || .summary p:first-of-type",
+      "categories": ".breadcrumb a || nav.breadcrumb a || .product-categories a",
+      "tags": ".product-tags a || .tags a",
+      "images": "meta[property='og:image']@content || .product-gallery img@src || .woocommerce-product-gallery__image img@src || img.product-image@src",
+      "in_stock": ".stock.in-stock || .availability .in-stock || .stock:contains('наличност') || .availability:contains('наличност')"
+    }
+  },
+  "byDomain": {
+    "135.148.82.224": {
+      "product": {
+        "name": "meta[property='og:title']@content || h1",
+        "sku": ".sku || [itemprop='sku']@content",
+        "price_regular": "meta[itemprop='price']@content || .price .amount || .price",
+        "price_sale": ".price .sale || .price .onsale",
+        "description_html": "#description || .product-description || .description",
+        "short_description_html": ".short-description || .summary p:first-of-type",
+        "categories": ".breadcrumb a",
+        "tags": ".product-tags a",
+        "images": "meta[property='og:image']@content || .gallery img@src || img[itemprop='image']@src"
+      }
+    },
+    "www.vivacom.bg": {
+      "product": {
+        "name": "meta[property='og:title']@content || h1",
+        "sku": ".sku || [itemprop='sku']@content",
+        "price_regular": "meta[itemprop='price']@content || .price .amount || .price",
+        "price_sale": ".price .sale || .price .onsale",
+        "description_html": "#description || .product-description || .description",
+        "short_description_html": ".short-description || .summary p:first-of-type",
+        "categories": ".breadcrumb a",
+        "tags": ".product-tags a",
+        "images": "meta[property='og:image']@content || .gallery img@src || img[itemprop='image']@src"
+      }
+    }
+  }
+}

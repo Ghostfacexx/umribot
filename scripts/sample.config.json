@@ -1,0 +1,47 @@
+{
+  "site": {
+    "origin": "https://teashop.bg",
+    "brand": "Teashop Mirror",
+    "themeSlug": "teashop-mirror"
+  },
+  "output": {
+    "baseDir": "dist",
+    "pagesDir": "dist/pages",
+    "productsDir": "dist/products",
+    "themeDir": "dist/theme"
+  },
+  "pages": [
+    {
+      "url": "https://teashop.bg/",
+      "title": "TeaShop.bg – магазин за чай, кафе и билки",
+      "slug": "teashop-bg-магазин-за-чай-кафе-и-билки",
+      "selector": "body",
+      "isFrontPage": true
+    }
+    /* Add more pages here if you want to mirror them:
+    ,{
+      "url": "https://teashop.bg/blog",
+      "title": "Блог",
+      "slug": "blog",
+      "selector": "#content"
+    }
+    */
+  ],
+  "scrapeProducts": {
+    "enabled": true,
+    "categoryUrls": [
+      /* Add category listing URLs from the origin here, e.g.:
+         "https://teashop.bg/%D1%87%D0%B0%D0%B9",
+         "https://teashop.bg/%D0%BA%D0%B0%D1%84%D0%B5"
+      */
+    ],
+    "maxProducts": 50,
+    "selectors": {
+      "list.productLink": ".product-thumb a[href*='product_id'], .product-layout a[href*='product_id']",
+      "product.title": "h1, #content h1",
+      "product.price": ".price, #content .price",
+      "product.description": "#tab-description, #content .tab-content, #content .product-description, .product-tabs .tab-content",
+      "product.images": ".image-additional a, .thumbnails a, .product-images a, a.thumbnail"
+    }
+  }
+}

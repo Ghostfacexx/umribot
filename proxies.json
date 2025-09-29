@@ -1,0 +1,12 @@
+[
+  {
+    "server": "http://gate.decodo.com:7000",
+    "username": "user-sp6leiql0l-country-us-session-abc123",
+    "password": "g=38To6nZrEexln5Nq"
+  },
+  {
+    "server": "http://gate.decodo.com:7000",
+    "username": "user-sp6leiql0l-country-us-session-def456",
+    "password": "g=38To6nZrEexln5Nq"
+  }
+]

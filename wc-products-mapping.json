@@ -1,0 +1,41 @@
+{
+  "default": {
+    "product": {
+      "name": "meta[property='og:title']@content || h1.product_title || h1[itemprop='name'] || h1",
+      "sku": ".product_meta .sku || .sku || [itemprop='sku']@content",
+      "price_regular": ".summary .price del .amount || meta[property='product:price:amount']@content || meta[itemprop='price']@content || .price .amount || .price",
+      "price_sale": ".summary .price ins .amount || meta[property='product:sale_price:amount']@content || .price .sale || .price .onsale",
+      "description_html": "#tab-description || .woocommerce-Tabs-panel--description || .product .entry-content || [itemprop='description']",
+      "short_description_html": ".woocommerce-product-details__short-description || .summary p:first-of-type",
+      "categories": ".posted_in a || .woocommerce-breadcrumb a:not(:first-child):not(:last-child)",
+      "tags": ".tagged_as a || .product-tags a || .tags a",
+      "images": ".woocommerce-product-gallery__image a@href || .woocommerce-product-gallery__image img@src || img.wp-post-image@src || meta[property='og:image']@content",
+      "in_stock": ".stock.in-stock || .availability .in-stock || .stock:contains('В наличност') || .availability:contains('В наличност')",
+      "is_product": [".single-product", ".woocommerce div.product", "[itemtype*='Product']"]
+    }
+  },
+  "byDomain": {
+    "teashop.bg": {
+      "product": {
+        "name": "meta[property='og:title']@content || #content h1 || h1.product-title",
+        "sku": ".product-meta .sku || .product-info .sku || #content li:contains('Код')@text || li:contains('SKU')@text",
+        "price_regular": ".price .price-old || .price-old || #content .price .old || #content .price:not(:has(.price-new)) || .price",
+        "price_sale": ".price .price-new || .price-new || #content .price .new",
+        "description_html": "#tab-description || #content .tab-content .tab-pane.active || #content .product-description || .product-tabs .tab-content",
+        "short_description_html": "#content .product-description-short || .product-info .description p:first-of-type",
+        "categories": ".breadcrumb li a",
+        "tags": ".product-tags a",
+        "images": "#image a@href || .thumbnails a@href || .product-gallery a@href || .swiper-slide img@src || meta[property='og:image']@content",
+        "in_stock": ".stock:contains('В наличност') || .availability:contains('В наличност') || .stock.in-stock",
+        "is_product": [
+          "form#product",
+          "#button-cart",
+          "div#product",
+          "body[class*='route-product-product']",
+          "meta[property='og:type'][content*='product']",
+          "[itemtype*='Product']"
+        ]
+      }
+    }
+  }
+}

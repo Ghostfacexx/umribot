@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Archiver – Stable UI + Advanced</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- MARKER: MINIMAL_UI_V2_ADV -->
+<style>
+body{margin:0;font-family:system-ui,Arial,sans-serif;background:#f5f7fa;color:#222}
+header{background:#0a57ff;color:#fff;padding:.85rem 1.1rem}
+h1{margin:0;font-size:1.05rem}
+main{padding:1rem;display:flex;flex-wrap:wrap;gap:1rem}
+section{background:#fff;border:1px solid #d0d7de;border-radius:10px;padding:1rem 1.05rem;flex:1 1 400px;min-width:360px;max-width:980px}
+h2{margin-top:0;font-size:.92rem;letter-spacing:.05em;text-transform:uppercase;color:#444}
+h3{margin:.6rem 0 .35rem;font-size:.8rem;color:#444}
+textarea,input,select{width:100%;box-sizing:border-box;font-family:inherit;font-size:.85rem;padding:.5rem .55rem;margin:.3rem 0 .55rem;border:1px solid #b9c2cb;border-radius:4px}
+button{background:#0a57ff;color:#fff;border:none;padding:.55rem .95rem;border-radius:5px;font-size:.75rem;font-weight:600;cursor:pointer}
+button.secondary{background:#5d6369}
+button.danger{background:#c62828}
+button:disabled{opacity:.5;cursor:not-allowed}
+pre{background:#111;color:#eee;font-size:.63rem;padding:.55rem .6rem;border-radius:6px;max-height:260px;overflow:auto;line-height:1.3}
+table{width:100%;border-collapse:collapse;font-size:.63rem}
+th,td{padding:.40rem .45rem;border-bottom:1px solid #e2e6ea;text-align:left;vertical-align:top}
+tbody tr.pending{opacity:.55}
+tbody tr:hover{background:#f0f6ff}
+.badge{display:inline-block;background:#eef;padding:.17rem .4rem;font-size:.55rem;border:1px solid #ccd;border-radius:3px;margin-right:.25rem}
+.small{font-size:.6rem;color:#555;margin-top:.3rem}
+.flex{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.row{display:flex;gap:.6rem;flex-wrap:wrap}
+.col{flex:1 1 240px;min-width:220px}
+.inlineSmall{width:90px}
+fieldset{border:1px solid #d0d7de;border-radius:6px;margin:.6rem 0;padding:.55rem .7rem}
+legend{font-size:.56rem;letter-spacing:.05em;text-transform:uppercase;padding:0 .35rem;color:#555}
+label.opt{display:inline-flex;align-items:center;gap:.3rem;font-size:.6rem;background:#eef1f4;padding:.35rem .55rem;border-radius:4px;margin:.15rem .25rem .25rem 0;cursor:pointer}
+.group{border:1px dashed #d8dee4;border-radius:6px;padding:.6rem .7rem;margin:.45rem 0}
+.notice{background:#fff8d6;border:1px solid #ffe58a;color:#6f5200;padding:.45rem .55rem;font-size:.6rem;border-radius:5px;margin:.4rem 0}
+a.zipLink{color:#0a57ff;text-decoration:none}
+summary{cursor:pointer;font-weight:600}
+#runsTableWrapper{max-height:260px;overflow:auto;border:1px solid #dde2e6;border-radius:6px}
+#jobsTableWrapper{max-height:200px;overflow:auto;border:1px solid #dde2e6;border-radius:6px}
+</style>
+</head>
+<body>
+<header><h1>Archiver – Stable UI + Advanced</h1></header>
+<main>
+
+<section>
+  <h2>Capture</h2>
+  <textarea id="seedInput" rows="4" placeholder="https://www.vivacom.bg/"></textarea>
+  <div class="row">
+    <div class="col">
+      <label class="opt"><input type="checkbox" id="optProfiles" checked>desktop,mobile</label>
+      <label class="opt"><input type="checkbox" id="optAggressive">aggressive</label>
+      <label class="opt"><input type="checkbox" id="optPreserve">preserve paths</label>
+      <label class="opt"><input type="checkbox" id="optScroll">scroll passes=2</label>
+    </div>
+    <div class="col">
+      <div><b>Auto-expand</b></div>
+      <div class="row">
+        <div class="col"><input id="autoDepth" type="number" min="0" value="0" placeholder="depth (0 = off)"></div>
+        <div class="col"><input id="autoMaxPages" type="number" min="0" value="120" placeholder="max pages"></div>
+      </div>
+      <div class="row">
+        <label class="opt"><input type="checkbox" id="autoSameHost" checked>same host</label>
+        <label class="opt"><input type="checkbox" id="autoSubs" checked>include subdomains</label>
+      </div>
+      <input id="autoAllow" placeholder="allow regex (optional)">
+      <input id="autoDeny" placeholder="deny regex (optional)">
+    </div>
+  </div>
+
+  <details>
+    <summary>Advanced capture settings</summary>
+    <div class="group">
+      <div class="row">
+        <div class="col">
+          <label>Engine
+            <select id="advEngine">
+              <option value="chromium" selected>chromium</option>
+              <option value="firefox">firefox</option>
+            </select>
+          </label>
+        </div>
+        <div class="col">
+          <label>Concurrency
+            <input id="advConcurrency" type="number" min="1" value="2">
+          </label>
+        </div>
+        <div class="col">
+          <label>Headless
+            <select id="advHeadless">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Page waitUntil
+            <select id="advWaitUntil">
+              <option>domcontentloaded</option>
+              <option>load</option>
+              <option>networkidle0</option>
+              <option>networkidle2</option>
+            </select>
+          </label>
+        </div>
+        <div class="col"><label>waitExtra(ms)<input id="advWaitExtra" type="number" value="700"></label></div>
+        <div class="col"><label>quietMillis(ms)<input id="advQuietMillis" type="number" value="1500"></label></div>
+      </div>
+
+      <div class="row">
+        <div class="col"><label>navTimeout(ms)<input id="advNavTimeout" type="number" value="20000"></label></div>
+        <div class="col"><label>pageTimeout(ms)<input id="advPageTimeout" type="number" value="40000"></label></div>
+        <div class="col"><label>maxCaptureMs(ms)<input id="advMaxCapMs" type="number" value="15000"></label></div>
+      </div>
+
+      <div class="row">
+        <div class="col"><label>scrollDelay(ms)<input id="advScrollDelay" type="number" value="250"></label></div>
+        <div class="col"><label>inlineSmallAssets(bytes)<input id="advInlineSmall" type="number" value="0"></label></div>
+        <div class="col"><label>assetMaxBytes(bytes)<input id="advAssetMax" type="number" value="3145728"></label></div>
+      </div>
+
+      <div class="row">
+        <label class="opt"><input type="checkbox" id="advRewriteInternal" checked>rewrite internal</label>
+        <label class="opt"><input type="checkbox" id="advMirrorSubs" checked>mirror subdomains</label>
+        <label class="opt"><input type="checkbox" id="advMirrorCross">mirror cross-origin</label>
+        <label class="opt"><input type="checkbox" id="advIncludeCO">include cross-origin</label>
+        <label class="opt"><input type="checkbox" id="advRewriteHtmlAssets" checked>rewrite html assets</label>
+        <label class="opt"><input type="checkbox" id="advFlattenRoot">flatten root index</label>
+      </div>
+
+      <input id="advInternalRegex" placeholder="internal rewrite regex (optional)">
+      <input id="advDomainFilter" placeholder="domain filter (comma/space separated)">
+
+      <textarea id="advClickSelectors" rows="2" placeholder="click selectors (one CSS selector per line)"></textarea>
+      <textarea id="advRemoveSelectors" rows="2" placeholder="remove selectors (one per line)"></textarea>
+      <textarea id="advSkipDownload" rows="2" placeholder="skip download patterns (one per line)"></textarea>
+
+      <h3>Consent handling</h3>
+      <div class="row">
+        <div class="col"><textarea id="advConsentButtons" rows="2" placeholder="consent button texts (one per line)"></textarea></div>
+        <div class="col"><textarea id="advConsentExtraSel" rows="2" placeholder="extra selectors (one per line)"></textarea></div>
+        <div class="col"><textarea id="advConsentForceRemove" rows="2" placeholder="force remove selectors (one per line)"></textarea></div>
+      </div>
+      <div class="row">
+        <div class="col"><label>retryAttempts<input id="advConsentRetries" type="number" value="12"></label></div>
+        <div class="col"><label>retryInterval(ms)<input id="advConsentInterval" type="number" value="700"></label></div>
+        <div class="col"><label>mutationWindow(ms)<input id="advConsentWindow" type="number" value="8000"></label></div>
+      </div>
+      <div class="row">
+        <label class="opt"><input type="checkbox" id="advConsentIframeScan">iframe scan</label>
+        <label class="opt"><input type="checkbox" id="advConsentDebug">consent debug</label>
+        <label class="opt"><input type="checkbox" id="advConsentScreenshot">debug screenshot</label>
+        <label class="opt"><input type="checkbox" id="advForceConsentWait">force wait(ms next field)</label>
+        <input id="advForceConsentWaitMs" class="inlineSmall" type="number" value="0">
+      </div>
+    </div>
+  </details>
+
+  <div class="flex">
+    <button id="btnStart">Start Run</button>
+    <button id="btnStop" class="secondary" disabled>Stop Run</button>
+    <button id="btnForceRefresh" class="secondary">Refresh Runs</button>
+  </div>
+
+  <details style="margin-top:.6rem">
+    <summary>Crawl first (optional)</summary>
+    <div class="group">
+      <textarea id="crawlSeeds" rows="3" placeholder="https://example.com/start"></textarea>
+      <div class="row">
+        <div class="col"><label>maxDepth<input id="crawlDepth" type="number" value="3"></label></div>
+        <div class="col"><label>maxPages<input id="crawlMaxPages" type="number" value="200"></label></div>
+        <div class="col"><label>waitAfterLoad(ms)<input id="crawlWait" type="number" value="500"></label></div>
+      </div>
+      <div class="row">
+        <label class="opt"><input type="checkbox" id="crawlSameHost" checked>same host</label>
+        <label class="opt"><input type="checkbox" id="crawlSubs" checked>include subdomains</label>
+      </div>
+      <input id="crawlAllow" placeholder="allow regex (optional)">
+      <input id="crawlDeny" placeholder="deny regex (optional)">
+      <div class="flex">
+        <button id="btnStartCrawlFirst">Start: Crawl then Capture</button>
+      </div>
+    </div>
+  </details>
+
+  <pre id="captureLog"></pre>
+</section>
+
+<section>
+  <h2>Runs</h2>
+  <div id="runsTableWrapper">
+    <table id="runsTable">
+      <thead><tr><th>ID</th><th>Started</th><th>Pages</th><th>Fail</th><th>Assets</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="small">Rows appear immediately as pending during capture.</div>
+</section>
+
+<section>
+  <h2>Host</h2>
+  <div class="flex">
+    <input id="hostRun" placeholder="Select a run from table" readonly>
+    <input id="hostPort" class="inlineSmall" value="8081">
+    <button id="btnHost">Host</button>
+    <button id="btnStopHost" class="secondary" disabled>Stop</button>
+  </div>
+  <pre id="hostLog"></pre>
+</section>
+
+<section>
+  <h2>Hosting Prep</h2>
+  <div id="hpNotice" class="notice">Select a run row first, then prepare.</div>
+  <fieldset>
+    <legend>Mode & Variants</legend>
+    <label class="opt"><input type="radio" name="hpMode" value="switch" checked>switch</label>
+    <label class="opt"><input type="radio" name="hpMode" value="desktop">desktop</label>
+    <label class="opt"><input type="radio" name="hpMode" value="both">both</label>
+    <label class="opt"><input type="checkbox" id="hpMobile" checked>include mobile</label>
+  </fieldset>
+  <fieldset>
+    <legend>Optimizations</legend>
+    <label class="opt"><input type="checkbox" id="hpStrip">strip analytics</label>
+    <label class="opt"><input type="checkbox" id="hpSW" checked>SW</label>
+    <label class="opt"><input type="checkbox" id="hpCompress">precompress</label>
+    <label class="opt"><input type="checkbox" id="hpSitemap" checked>sitemap</label>
+    <label class="opt"><input type="checkbox" id="hpZip" checked>zip</label>
+    <label class="opt"><input type="checkbox" id="hpShopify">shopify</label>
+  </fieldset>
+  <fieldset>
+    <legend>Platform & Advanced</legend>
+    <select id="hpPlatform" style="margin-bottom:.4rem;width:100%"></select>
+    <input id="hpBaseUrl" placeholder="https://archive.example.com">
+    <input id="hpExtraRegex" placeholder="Extra analytics regex (optional)">
+    <div class="flex">
+      <button id="btnSuggest">Load Suggestions</button>
+      <button id="btnPreparePkg">Prepare Package</button>
+      <button id="btnRefreshJobs" class="secondary">Refresh Jobs</button>
+    </div>
+  </fieldset>
+  <pre id="hpLog"></pre>
+  <div id="jobsTableWrapper">
+    <table id="jobsTable">
+      <thead><tr><th>ID</th><th>Status</th><th>ZIP</th><th>Run</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Live Log (SSE)</h2>
+  <pre id="liveLog"></pre>
+</section>
+
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/js/export.js"></script>
+<script src="/static/js/prep-run.js"></script>
+<script src="/static/js/prime-products.js"></script>
+<script src="/static/js/delete-run-ui.js"></script>
+<script src="/static/js/products-only-ui.js"></script>
+<script src="/static/js/woo-fast-preset.js"></script>
+</body>
+</html>

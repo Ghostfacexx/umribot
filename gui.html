@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Archiver GUI + SMART Hosting Prep</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,Arial,sans-serif;margin:0;padding:0;background:#f7f9fb;color:#222}
+header{background:#0a57ff;color:#fff;padding:1rem 1.5rem}
+main{padding:1rem 1.5rem;display:flex;gap:2rem;flex-wrap:wrap}
+section{background:#fff;border:1px solid #d8dee4;border-radius:8px;padding:1rem 1.25rem;flex:1 1 420px;min-width:380px;max-width:780px}
+h2{margin-top:0;font-size:1.1rem;text-transform:uppercase;letter-spacing:.06em;color:#444}
+textarea,input,select{width:100%;box-sizing:border-box;font-family:inherit;font-size:.9rem;margin-top:.25rem;margin-bottom:.75rem;padding:.5rem;border:1px solid #bbb;border-radius:4px}
+button{background:#0a57ff;border:none;color:#fff;padding:.6rem 1rem;border-radius:4px;cursor:pointer;font-weight:500}
+button.secondary{background:#666}
+button:disabled{opacity:.5;cursor:not-allowed}
+.badge{display:inline-block;padding:.2rem .5rem;background:#eef;border:1px solid #ccd;border-radius:4px;font-size:.7rem;margin-right:.4rem}
+pre{background:#111;color:#eee;padding:.75rem;max-height:240px;overflow:auto;font-size:.75rem;border-radius:6px}
+table{width:100%;border-collapse:collapse;font-size:.75rem}
+td,th{padding:.4rem .5rem;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+tr:hover{background:#fafafa}
+.flex{display:flex;gap:.5rem;align-items:center}
+.inline{display:inline-block}
+.opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.opt-grid label{display:flex;align-items:center;gap:.35rem;font-size:.75rem;background:#f0f3f6;padding:.35rem .5rem;border-radius:4px;cursor:pointer}
+.small{font-size:.7rem;color:#555}
+.notice{background:#fff3cd;color:#7a5d00;padding:.5rem .7rem;border:1px solid #ffe69c;border-radius:4px;margin-bottom:.75rem;font-size:.75rem}
+.success{background:#e7f9ed;color:#0b6b2e;border:1px solid #b5e3c3}
+.error{background:#fde4e4;color:#891515;border:1px solid #f5b4b4}
+fieldset{border:1px solid #d8dee4;border-radius:6px;padding:.6rem .75rem;margin-bottom:.85rem}
+legend{padding:0 .4rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#555}
+.tag{background:#0a57ff;color:#fff;font-size:.6rem;padding:.15rem .4rem;border-radius:3px;letter-spacing:.04em}
+.hl{color:#0a57ff;font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1 style="margin:0;font-size:1.25rem;">Archiver Control & Hosting Prep</h1>
+</header>
+<main>
+
+<section id="run-launch">
+  <h2>1. Launch Capture</h2>
+  <label>Seed URLs (one per line)
+    <textarea id="seeds" rows="5" placeholder="https://www.example.com/"></textarea>
+  </label>
+  <div class="opt-grid">
+    <label><input type="checkbox" id="optProfiles" checked> Profiles desktop,mobile (PROFILES=desktop,mobile)</label>
+    <label><input type="checkbox" id="optHeadless" checked> Headless</label>
+    <label><input type="checkbox" id="optAggressive"> Aggressive Capture</label>
+    <label><input type="checkbox" id="optScroll"> Scroll Passes=2</label>
+  </div>
+  <button id="btnRun">Run Capture</button>
+  <pre id="runLog"></pre>
+</section>
+
+<section id="runs">
+  <h2>2. Runs</h2>
+  <table id="runsTable">
+    <thead><tr><th>Run ID</th><th>Created</th><th>Actions</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="small">Select a run to host or prepare for deployment.</div>
+</section>
+
+<section id="host">
+  <h2>3. Host Selected Run</h2>
+  <div class="flex">
+    <input id="hostRun" placeholder="Select run first" readonly>
+    <input id="hostPort" value="8081" style="width:100px">
+    <button id="btnHost">Host</button>
+  </div>
+  <div class="small">Server root will resolve desktop/mobile variants automatically.</div>
+  <pre id="hostLog"></pre>
+</section>
+
+<section id="prep">
+  <h2>4. SMART Hosting Preparation</h2>
+  <div id="prepSelectRun" class="notice">Select a run in the Runs table to load suggestions.</div>
+  <div id="prepPanel" style="display:none">
+    <div id="prepSuggest" class="notice"></div>
+    <fieldset>
+      <legend>Mode & Variants</legend>
+      <div class="opt-grid">
+        <label><input type="radio" name="mode" value="switch" checked> Switch (auto redirect)</label>
+        <label><input type="radio" name="mode" value="desktop"> Desktop Only</label>
+        <label><input type="radio" name="mode" value="both"> Both (desktop root)</label>
+        <label><input type="checkbox" id="includeMobile" checked> Include Mobile Variant</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Optimizations</legend>
+      <div class="opt-grid">
+        <label><input type="checkbox" id="stripAnalytics"> Strip Analytics</label>
+        <label><input type="checkbox" id="serviceWorker" checked> Service Worker</label>
+        <label><input type="checkbox" id="precompress"> Precompress (.gz/.br)</label>
+        <label><input type="checkbox" id="sitemap" checked> Sitemap + robots</label>
+        <label><input type="checkbox" id="shopifyEmbed"> Shopify Embed</label>
+        <label><input type="checkbox" id="createZip" checked> Create ZIP</label>
+      </div>
+      <div class="opt-grid" style="margin-top:.4rem;opacity:.5;pointer-events:none">
+        <label title="Future"><input type="checkbox" disabled> Responsive Images (future)</label>
+        <label title="Future"><input type="checkbox" disabled> Critical CSS (future)</label>
+        <label title="Future"><input type="checkbox" disabled> Externalize Inline JS (future)</label>
+        <label title="Future"><input type="checkbox" disabled> Lazyload Images (future)</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Platform & Advanced</legend>
+      <label>Platform Preset
+        <select id="platform"></select>
+      </label>
+      <label>Base URL (for sitemap)
+        <input id="baseUrl" placeholder="https://your-domain.example">
+      </label>
+      <label>Extra Analytics Regex
+        <input id="extraAnalytics" placeholder="(adroll|something)">
+      </label>
+    </fieldset>
+
+    <button id="btnPrepare">Prepare Hosting Package</button>
+    <pre id="prepLog" style="margin-top:.75rem;"></pre>
+
+    <h3 style="margin-top:1.5rem;font-size:.95rem;">Hosting Jobs</h3>
+    <table id="hostingJobsTable">
+      <thead><tr><th>ID</th><th>Run</th><th>Status</th><th>ZIP</th><th>Actions</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+<script>
+let currentRun=null;
+let platforms=[];
+
+function $(id){ return document.getElementById(id); }
+
+async function loadRuns(){
+  const res=await fetch('/api/runs');
+  const data=await res.json();
+  const tbody=document.querySelector('#runsTable tbody');
+  tbody.innerHTML='';
+  data.forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td><a href="#" data-run="'+r.id+'">'+r.id+'</a></td><td>'+new Date(r.ctime).toLocaleString()+'</td><td><button data-act="select" data-run="'+r.id+'">Select</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+document.querySelector('#runsTable').addEventListener('click',e=>{
+  const run=e.target.getAttribute('data-run');
+  if(!run) return;
+  currentRun=run;
+  $('#hostRun').value=run;
+  loadSuggestions(run);
+  $('#prepSelectRun').style.display='none';
+  $('#prepPanel').style.display='block';
+  e.preventDefault();
+});
+
+async function loadPlatforms(){
+  const res=await fetch('/api/hosting-presets');
+  const json=await res.json();
+  platforms=json.platforms||[];
+  const sel=$('#platform');
+  sel.innerHTML='';
+  platforms.forEach(p=>{
+    const opt=document.createElement('option');
+    opt.value=p.id;
+    opt.textContent=p.label;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadSuggestions(runId){
+  const res=await fetch('/api/runs/'+runId+'/prepare-suggestions');
+  if(!res.ok){
+    $('#prepSuggest').className='notice error';
+    $('#prepSuggest').textContent='Failed to load suggestions';
+    return;
+  }
+  const s=await res.json();
+  // apply recommendations
+  document.querySelectorAll('input[name="mode"]').forEach(r=>{
+    r.checked=(r.value===s.recommendations.mode);
+  });
+  $('#includeMobile').checked=s.hasMobile;
+  $('#stripAnalytics').checked=s.recommendations.stripAnalytics;
+  $('#precompress').checked=s.recommendations.precompress;
+  $('#serviceWorker').checked=!s.recommendations.noServiceWorker;
+  $('#baseUrl').value=s.recommendations.baseUrl || '';
+  $('#platform').value='generic';
+
+  const msg=[
+    'Pages: '+s.pages,
+    'Has Mobile: '+s.hasMobile,
+    'Assets (approx desktop sum): '+s.totalAssetsApprox,
+    'Largest inline script bytes: '+s.largestInlineScriptBytes,
+    'Analytics matches: '+s.analyticsMatches,
+    'Suggested mode: '+s.recommendations.mode
+  ].join(' | ');
+  $('#prepSuggest').className='notice';
+  $('#prepSuggest').textContent=msg;
+}
+
+$('#btnRun').addEventListener('click', async ()=>{
+  const seeds = $('#seeds').value.trim().split(/\n+/).filter(Boolean);
+  if(!seeds.length){ alert('Provide at least one URL'); return; }
+  const options={};
+  if($('#optProfiles').checked) options.PROFILES='desktop,mobile';
+  if($('#optHeadless').checked) options.HEADLESS='true';
+  if($('#optAggressive').checked) options.AGGRESSIVE_CAPTURE='true';
+  if($('#optScroll').checked) options.SCROLL_PASSES='2';
+  const res=await fetch('/api/run',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ urls:seeds, options })
+  });
+  const json=await res.json();
+  $('#runLog').textContent='Started job '+json.jobId+' runId='+json.runId;
+  // naive poll
+  const interval=setInterval(async ()=>{
+    const r2=await fetch('/api/runs');
+    loadRuns();
+  },4000);
+  setTimeout(()=>clearInterval(interval),60000);
+});
+
+$('#btnHost').addEventListener('click', async ()=>{
+  if(!currentRun){ alert('Select a run first'); return; }
+  const port=$('#hostPort').value;
+  const res=await fetch('/api/host',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ runId:currentRun, port })
+  });
+  const json=await res.json();
+  $('#hostLog').textContent='Hosting starting on port '+json.port+' ...';
+  setTimeout(pollHost,1500);
+});
+
+async function pollHost(){
+  const res=await fetch('/api/host-status');
+  if(!res.ok) return;
+  const j=await res.json();
+  if(j.active){
+    $('#hostLog').textContent='Active host run='+j.runId+' port='+j.port+'\n---- LOG ----\n'+j.log.join('');
+  }
+  setTimeout(pollHost,5000);
+}
+
+$('#platform').addEventListener('change',()=>{
+  const val=$('#platform').value;
+  const preset=platforms.find(p=>p.id===val);
+  if(preset && preset.recommends){
+    if(preset.recommends.precompress!==undefined){
+      $('#precompress').checked=preset.recommends.precompress;
+    }
+  }
+  // Platform-specific UX
+  if(val==='shopify'){
+    $('#shopifyEmbed').checked=true;
+    document.querySelector('input[value="switch"]').checked=true;
+  }
+});
+
+$('#btnPrepare').addEventListener('click', async ()=>{
+  if(!currentRun){ alert('Select a run first'); return; }
+  const mode=document.querySelector('input[name="mode"]:checked').value;
+  const payload={
+    runId: currentRun,
+    options:{
+      mode,
+      includeMobile: $('#includeMobile').checked,
+      stripAnalytics: $('#stripAnalytics').checked,
+      serviceWorker: $('#serviceWorker').checked,
+      precompress: $('#precompress').checked,
+      sitemap: $('#sitemap').checked,
+      baseUrl: $('#baseUrl').value.trim(),
+      extraAnalyticsRegex: $('#extraAnalytics').value.trim(),
+      platform: $('#platform').value,
+      shopifyEmbed: $('#shopifyEmbed').checked,
+      createZip: $('#createZip').checked
+    }
+  };
+  $('#prepLog').textContent='Submitting hosting prep job...';
+  const res=await fetch('/api/hosting-jobs',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  });
+  const json=await res.json();
+  if(json.jobId){
+    $('#prepLog').textContent='Hosting prep job '+json.jobId+' started.';
+    pollHostingJobs();
+  } else {
+    $('#prepLog').textContent='Error: '+JSON.stringify(json);
+  }
+});
+
+async function pollHostingJobs(){
+  const res=await fetch('/api/hosting-jobs');
+  if(!res.ok) return;
+  const jobs=await res.json();
+  const tbody=document.querySelector('#hostingJobsTable tbody');
+  tbody.innerHTML='';
+  jobs.sort((a,b)=> (a.startedAt < b.startedAt ? 1:-1));
+  jobs.forEach(j=>{
+    const tr=document.createElement('tr');
+    const zipLink = j.zip ? `<a href="/api/hosting-jobs/${j.id}/download">zip</a>` : '';
+    tr.innerHTML=`<td>${j.id}</td><td>${j.runId}</td><td>${j.status}</td><td>${zipLink}</td>
+      <td><button data-j="${j.id}" data-act="view">View Log</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+document.querySelector('#hostingJobsTable').addEventListener('click', async e=>{
+  const id=e.target.getAttribute('data-j');
+  const act=e.target.getAttribute('data-act');
+  if(act==='view'){
+    const res=await fetch('/api/hosting-jobs/'+id);
+    if(!res.ok) return;
+    const j=await res.json();
+    const tail=j.log.slice(-80).join('');
+    $('#prepLog').textContent='Job '+id+' status='+j.status+'\n----- LOG TAIL -----\n'+tail;
+  }
+});
+
+setInterval(pollHostingJobs,5000);
+
+loadRuns();
+loadPlatforms();
+pollHost();
+pollHostingJobs();
+</script>
+</body>
+</html>

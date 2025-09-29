@@ -1,0 +1,53 @@
+{
+  "name": "single-file-cli",
+  "version": "2.0.75",
+  "description": "SingleFile CLI plus custom archiver + GUI",
+  "author": "Gildas Lormeau (base) / local customizations",
+  "engines": {
+    "deno": ">=1.4",
+    "bun": ">=1.0",
+    "node": ">=20"
+  },
+  "type": "module",
+  "bin": {
+    "single-file": "single-file-node.js"
+  },
+  "main": "options.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "compression": "^1.8.1",
+    "crc": "^4.3.2",
+    "express": "^5.1.0",
+    "https-proxy-agent": "^7.0.6",
+    "juice": "^11.0.1",
+    "nanoid": "^5.1.5",
+    "node-fetch": "^2.7.0",
+    "playwright": "^1.55.0",
+    "playwright-extra": "^4.3.6",
+    "playwright-extra-plugin-stealth": "^0.0.1",
+    "playwright-stealth": "^0.0.1",
+    "puppeteer": "^24.19.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "simple-cdp": "^1.8.5",
+    "single-file-cli": "^2.0.75",
+    "transliteration": "^2.3.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "archive": "node archiver.cjs seeds.txt /var/www/outnet-archive",
+    "gui": "PORT=8090 node gui-server.cjs",
+    "static": "PORT=8080 ARCHIVE_ROOT=/var/www/outnet-archive node server.cjs",
+    "static:dir": "PORT=8080 ARCHIVE_ROOT=$ARCHIVE_ROOT node server.cjs",
+    "lint": "eslint . || true"
+  },
+  "keywords": [],
+  "license": "ISC"
+}

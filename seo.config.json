@@ -1,0 +1,35 @@
+{
+  "threshold": 8.0,
+  "knowledgePath": "./seo_knowledge.json",
+  "minHighScoreForLearning": 8.5,
+  "minPagesPerDomainForLearning": 3,
+  "maxTokensForBodySampling": 3000,
+  "categorySimilarityThreshold": 0.2,
+  "scoringWeights": {
+    "title": 1.0,
+    "description": 1.0,
+    "canonical": 1.0,
+    "h1": 1.0,
+    "headingsHierarchy": 0.5,
+    "imageAltCoverage": 1.0,
+    "internalLinks": 1.0,
+    "ogTags": 0.5,
+    "twitterTags": 0.5,
+    "jsonLd": 1.0,
+    "hreflang": 0.5
+  },
+  "targetRanges": {
+    "titleLength": { "min": 40, "max": 60 },
+    "descriptionLength": { "min": 110, "max": 160 },
+    "imageAltCoverageMin": 0.9,
+    "internalLinksMin": 20
+  },
+  "safeTransforms": {
+    "canonical": true,
+    "metaDescription": true,
+    "ogTwitter": true,
+    "jsonLdWebsite": true,
+    "enforceSingleH1": true,
+    "fillMissingImageAlt": true
+  }
+}

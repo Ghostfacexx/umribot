@@ -1,0 +1,16 @@
+[
+  {
+    "title": "TeaShop.bg – магазин за чай, кафе и билки",
+    "slug": "teashop-bg",
+    "isFrontPage": true,
+    "menuOrder": 0,
+    "originUrl": "https://teashop.bg/",
+    "contentHtml": "<div>...your captured, rewritten HTML...</div>"
+  },
+  {
+    "title": "Category 59",
+    "slug": "category-59",
+    "originUrl": "https://teashop.bg/index.php?route=product/category&path=59",
+    "contentHtml": "<div>...</div>"
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "cookiebot": {
+    "scripts": ["cookiebot.com", "consent.cookiebot.com"],
+    "ids": ["CybotCookiebotDialog"],
+    "acceptSelectors": [
+      "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+      "#CybotCookiebotDialogBodyButtonAccept",
+      "#CybotCookiebotDialogBodyButtonAcceptAll"
+    ],
+    "cookieSetFunction": "window.Cookiebot && window.Cookiebot.submitCustomConsent && window.Cookiebot.submitCustomConsent(true,true,true,true);",
+    "injectCookies": [
+      {
+        "name": "CookieConsent",
+        "valueTemplate": "stamp:{STAMP},necessary:true,preferences:true,statistics:true,marketing:true,ver:1",
+        "domainScope": "root",
+        "maxAge": 31536000
+      }
+    ]
+  },
+  "onetrust": {
+    "scripts": ["cdn.cookielaw.org"],
+    "ids": ["onetrust-banner-sdk"],
+    "acceptSelectors": [
+      "#onetrust-accept-btn-handler",
+      "button[aria-label='Accept All Cookies']"
+    ],
+    "cookieNamesHint": ["OptanonConsent","OptanonAlertBoxClosed"]
+  }
+}

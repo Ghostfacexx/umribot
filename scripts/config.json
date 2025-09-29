@@ -1,0 +1,58 @@
+{
+  "site": {
+    "origin": "https://teashop.bg",
+    "brand": "Teashop Mirror",
+    "themeSlug": "teashop-mirror"
+  },
+  "capture": {
+    "defaultSelector": "#content",
+    "frontPageSelector": "body",
+    "removeExternalLibs": true,
+    "includeSiteCSS": false,
+    "includeSiteJS": false,
+    "downloadImages": true,
+    "downloadOtherAssets": true,
+    "maxConcurrency": 3
+  },
+  "output": {
+    "baseDir": "dist",
+    "pagesDir": "dist/pages",
+    "themeDir": "dist/theme",
+    "assetsRelInTheme": "assets/mirror"
+  },
+  "pages": [
+    { "url": "https://teashop.bg/", "title": "TeaShop.bg – ??????? ?? ???, ???? ? ?????", "slug": "teashop-bg-???????-??-???-????-?-?????", "selector": "body", "isFrontPage": true },
+
+    { "url": "https://teashop.bg/index.php?route=product/category&path=59", "title": "Category 59", "slug": "category-59" },
+    { "url": "https://teashop.bg/desktops", "title": "Desktops", "slug": "desktops" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=18", "title": "Category 18", "slug": "category-18" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=85", "title": "Category 85", "slug": "category-85" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=74", "title": "Category 74", "slug": "category-74" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=57", "title": "Category 57", "slug": "category-57" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=17", "title": "Category 17", "slug": "category-17" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=33", "title": "Category 33", "slug": "category-33" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=88", "title": "Category 88", "slug": "category-88" },
+    { "url": "https://teashop.bg/index.php?route=product/category&path=87", "title": "Category 87", "slug": "category-87" },
+
+    { "url": "https://teashop.bg/index.php?route=account/account", "title": "My Account", "slug": "my-account" },
+    { "url": "https://teashop.bg/index.php?route=account/wishlist", "title": "Wishlist", "slug": "wishlist" },
+    { "url": "https://teashop.bg/index.php?route=checkout/cart", "title": "Cart", "slug": "cart" },
+    { "url": "https://teashop.bg/index.php?route=checkout/checkout", "title": "Checkout", "slug": "checkout" },
+
+    { "url": "https://teashop.bg/about_us", "title": "About Us", "slug": "about-us" },
+    { "url": "https://teashop.bg/delivery", "title": "Delivery", "slug": "delivery" },
+    { "url": "https://teashop.bg/privacy", "title": "Privacy Policy", "slug": "privacy" },
+    { "url": "https://teashop.bg/terms", "title": "Terms & Conditions", "slug": "terms" },
+
+    { "url": "https://teashop.bg/index.php?route=information/contact", "title": "Contact", "slug": "contact" },
+    { "url": "https://teashop.bg/index.php?route=account/return/add", "title": "Return Request", "slug": "return-request" },
+    { "url": "https://teashop.bg/index.php?route=information/sitemap", "title": "Sitemap", "slug": "sitemap" },
+    { "url": "https://teashop.bg/index.php?route=product/manufacturer", "title": "Manufacturers", "slug": "manufacturers" },
+    { "url": "https://teashop.bg/index.php?route=account/voucher", "title": "Gift Vouchers", "slug": "gift-vouchers" },
+    { "url": "https://teashop.bg/index.php?route=affiliate/account", "title": "Affiliate Program", "slug": "affiliate-account" },
+    { "url": "https://teashop.bg/index.php?route=product/special", "title": "Special Offers", "slug": "special-offers" }
+  ],
+  "pagesFromIndex": {
+    "enabled": false
+  }
+}

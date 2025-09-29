@@ -1,0 +1,11 @@
+/*
+Theme Name: Teashop Mirror
+Theme URI: https://example.com
+Author: You
+Description: Minimal mirror theme for WooCommerce. Renders the front page with captured HTML and loads Bootstrap 3 + Font Awesome + Owl Carousel for pixel-close reproduction.
+Version: 1.0.0
+Text Domain: teashop-mirror
+*/
+
+html, body { margin: 0; padding: 0; }
+.fa > span, .glyphicon > span { display: none !important; } /* hide stray icon tokens */

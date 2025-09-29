@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Archiver GUI + SMART Hosting Prep</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,Arial,sans-serif;margin:0;background:#f7f9fb;color:#1f2328}
+header{background:#0a57ff;color:#fff;padding:0.9rem 1.3rem}
+main{padding:1rem 1.2rem;display:flex;flex-wrap:wrap;gap:1.2rem}
+section{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:1rem 1.2rem;flex:1 1 430px;min-width:370px;max-width:820px;position:relative}
+h2{margin-top:0;font-size:1.05rem;text-transform:uppercase;letter-spacing:.06em;color:#495057}
+textarea,input,select{width:100%;box-sizing:border-box;font-family:inherit;font-size:.85rem;margin:.25rem 0 .7rem;padding:.55rem .6rem;border:1px solid #b6bec6;border-radius:4px;background:#fff}
+button{background:#0a57ff;border:none;color:#fff;padding:.55rem .95rem;border-radius:4px;cursor:pointer;font-size:.8rem;font-weight:600;letter-spacing:.03em}
+button.secondary{background:#636c76}
+button:disabled{opacity:.5;cursor:not-allowed}
+.badge{display:inline-block;padding:.2rem .5rem;background:#eef;border:1px solid #ccd;border-radius:4px;font-size:.65rem;margin-right:.35rem}
+pre{background:#161b22;color:#f0f6fc;padding:.7rem;max-height:230px;overflow:auto;font-size:.68rem;border-radius:6px;line-height:1.25}
+table{width:100%;border-collapse:collapse;font-size:.7rem}
+td,th{padding:.4rem .45rem;border-bottom:1px solid #e6e9ed;text-align:left;vertical-align:top}
+tr:hover{background:#f6f8fa}
+.flex{display:flex;gap:.55rem;align-items:center}
+.inline{display:inline-block}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
+.grid-3{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.4rem}
+.opt label{display:flex;align-items:center;gap:.4rem;font-size:.65rem;background:#f1f3f5;padding:.35rem .5rem;border-radius:4px;cursor:pointer}
+.small{font-size:.65rem;color:#586069}
+.notice{background:#fff8d6;color:#7a5d00;padding:.5rem .7rem;border:1px solid #ffe58a;border-radius:4px;margin-bottom:.65rem;font-size:.68rem}
+.notice.error{background:#fde4e4;color:#8c2a2a;border-color:#f3b4b4}
+.notice.success{background:#e7f9ed;color:#0b6b2e;border-color:#b5e3c3}
+fieldset{border:1px solid #d0d7de;border-radius:6px;padding:.55rem .75rem;margin-bottom:.75rem}
+legend{padding:0 .4rem;font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:#555}
+#prepPanel fieldset label{font-size:.62rem}
+.tag{background:#0a57ff;color:#fff;font-size:.55rem;padding:.15rem .4rem;border-radius:3px;letter-spacing:.04em;margin-right:.3rem}
+.separator{height:1px;background:#e1e4e8;margin:.7rem 0}
+code.inline{background:#f2f4f6;padding:.2rem .35rem;border-radius:4px;font-size:.65rem}
+</style>
+</head>
+<body>
+<header><h1 style="margin:0;font-size:1.2rem;">Archiver Control + SMART Hosting Prep</h1></header>
+<main>
+
+<!-- 1. Run / Capture -->
+<section>
+  <h2>1. Capture</h2>
+  <label>Seed URLs (one per line)
+    <textarea id="seeds" rows="5" placeholder="https://www.example.com/"></textarea>
+  </label>
+  <div class="grid-3 opt">
+    <label><input type="checkbox" id="optProfiles" checked>Profiles desktop,mobile</label>
+    <label><input type="checkbox" id="optHeadless" checked>Headless</label>
+    <label><input type="checkbox" id="optAggressive">Aggressive capture</label>
+    <label><input type="checkbox" id="optAutoExpand">Auto-expand depth 1</label>
+    <label><input type="checkbox" id="optScroll">Scroll passes=2</label>
+    <label><input type="checkbox" id="optPreserve">Preserve asset paths</label>
+  </div>
+  <button id="btnRun">Start Capture</button>
+  <div class="separator"></div>
+  <pre id="runLog" aria-label="Run Log"></pre>
+</section>
+
+<!-- 2. Runs -->
+<section>
+  <h2>2. Runs</h2>
+  <table id="runsTable">
+    <thead><tr><th>Run</th><th>Started</th><th>Pages</th><th>Fail</th><th>Actions</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="small">Click Select to enable hosting / prep below.</div>
+</section>
+
+<!-- 3. Hosting (simple) -->
+<section>
+  <h2>3. Host Run</h2>
+  <div class="flex">
+    <input id="hostRun" placeholder="Select run" readonly>
+    <input id="hostPort" value="8081" style="width:80px">
+    <button id="btnHost">Host</button>
+    <button id="btnStopHost" class="secondary">Stop</button>
+  </div>
+  <div class="small">Root resolves variant fallback. Visit <code class="inline">/index/desktop/</code> or <code class="inline">/index/mobile/</code>.</div>
+  <pre id="hostLog"></pre>
+</section>
+
+<!-- SMART HOSTING PREP PANEL MOUNT -->
+<div id="hostingPaneMount"></div>
+<link rel="stylesheet" href="/static/hosting-pane.css">
+<script src="/static/hosting-pane.js" defer></script>
+<script>
+  // If your existing code sets selected run differently, call:
+  // window.setHostingCurrentRun(runId) whenever user selects a run.
+</script>
+
+<!-- 4. SMART Hosting Prep -->
+<section id="prepSection">
+  <h2>4. Hosting Preparation</h2>
+  <div id="prepNotice" class="notice">Select a run to load suggestions.</div>
+  <div id="prepPanel" style="display:none">
+    <div id="suggestLine" class="notice"></div>
+
+    <fieldset>
+      <legend>Mode & Variants</legend>
+      <div class="grid-3 opt">
+        <label><input type="radio" name="mode" value="switch" checked>Switch</label>
+        <label><input type="radio" name="mode" value="desktop">Desktop</label>
+        <label><input type="radio" name="mode" value="both">Both</label>
+        <label><input type="checkbox" id="includeMobile" checked>Include mobile variant</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Optimizations</legend>
+      <div class="grid-3 opt">
+        <label><input type="checkbox" id="stripAnalytics">Strip analytics</label>
+        <label><input type="checkbox" id="serviceWorker" checked>Service Worker</label>
+        <label><input type="checkbox" id="precompress">Precompress</label>
+        <label><input type="checkbox" id="sitemap" checked>Sitemap</label>
+        <label><input type="checkbox" id="shopifyEmbed">Shopify Embed</label>
+        <label><input type="checkbox" id="createZip" checked>ZIP Bundle</label>
+      </div>
+      <div class="grid-3 opt" style="opacity:.4;pointer-events:none">
+        <label><input type="checkbox" disabled>Responsive Images (future)</label>
+        <label><input type="checkbox" disabled>Critical CSS (future)</label>
+        <label><input type="checkbox" disabled>Externalize Inline JS (future)</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Platform / Advanced</legend>
+      <label>Platform Preset
+        <select id="platform"></select>
+      </label>
+      <label>Base URL (for sitemap)
+        <input id="baseUrl" placeholder="https://archive.example.com">
+      </label>
+      <label>Extra Analytics Regex
+        <input id="extraAnalytics" placeholder="(adroll|something)">
+      </label>
+    </fieldset>
+
+    <button id="btnPrepare">Generate Hosting Package</button>
+    <pre id="prepLog"></pre>
+
+    <h3 style="margin-top:1.1rem;font-size:.85rem;">Hosting Jobs</h3>
+    <table id="hostingJobsTable">
+      <thead><tr><th>ID</th><th>Run</th><th>Status</th><th>ZIP</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 5. Live Log (SSE) -->
+<section>
+  <h2>5. Live Log</h2>
+  <pre id="liveFeed"></pre>
+</section>
+
+
+<!-- RECOVERY INLINE SCRIPT (safe, idempotent) -->
+<script>
+(function(){
+  if(window.__INLINE_RECOVERY__){return;}
+  window.__INLINE_RECOVERY__=true;
+  function $(id){return document.getElementById(id);}
+  const seedsEl=document.querySelector('#seeds,#seedUrls');
+  const btn=document.querySelector('#btnRun,#startBtn,#runBtn');
+  const log=document.querySelector('#runLog,#runOutput,#logArea');
+  function logLine(m){
+    if(log){log.textContent+=m+"\\n";log.scrollTop=log.scrollHeight;}
+    console.log('[RECOVERY]',m);
+  }
+  if(!seedsEl||!btn){
+    console.warn('[RECOVERY] Required elements not found; aborting inline fix.');
+    return;
+  }
+  btn.addEventListener('click', function(){
+    const urls=seedsEl.value.trim().split(/\\n+/).filter(Boolean);
+    if(!urls.length){
+      alert('Enter at least one URL'); return;
+    }
+    const options={};
+    const profiles=document.querySelector('#optProfiles,#profiles');
+    if(profiles && profiles.checked) options.profiles='desktop,mobile';
+    const aggressive=document.querySelector('#optAggressive,#aggressiveCapture');
+    if(aggressive && aggressive.checked) options.aggressiveCapture=true;
+    const preserve=document.querySelector('#optPreserve,#preserveAssetPaths');
+    if(preserve && preserve.checked) options.preserveAssetPaths=true;
+    const scroll=document.querySelector('#optScroll');
+    if(scroll && scroll.checked) options.scrollPasses=2;
+    btn.disabled=true;
+    logLine('POST /api/run ...');
+    fetch('/api/run',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({urlsText:urls.join('\\n'), options})
+    }).then(r=>r.text()).then(t=>{
+      logLine('Response: '+t);
+      btn.disabled=false;
+      try{ const j=JSON.parse(t); if(j.runId) logLine('Run started: '+j.runId); }catch{}
+    }).catch(e=>{
+      btn.disabled=false;
+      logLine('Error: '+e.message);
+    });
+  });
+  logLine('Inline recovery capture script attached.');
+})();
+</script>
+<!-- END RECOVERY INLINE SCRIPT -->
+
+</main>
+<script>
+let currentRun=null;
+let sse;
+let platforms=[];
+
+function $(id){ return document.getElementById(id); }
+
+function appendLive(line){
+  const el=$('#liveFeed');
+  el.textContent += line + '\\n';
+  if(el.textContent.length>20000) el.textContent=el.textContent.slice(-18000);
+  el.scrollTop=el.scrollHeight;
+}
+
+function startSSE(){
+  sse = new EventSource('/api/logs');
+  sse.onmessage = e=> appendLive(e.data);
+}
+
+async function loadRuns(){
+  const r=await fetch('/api/runs');
+  const d=await r.json();
+  const tb=document.querySelector('#runsTable tbody');
+  tb.innerHTML='';
+  d.runs.slice().reverse().forEach(run=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = '<td>'+run.id+'</td>'+
+      '<td>'+new Date(run.startedAt).toLocaleTimeString()+'</td>'+
+      '<td>'+(run.stats?.pages||run.stats?.pagesCrawled||'-')+'</td>'+
+      '<td>'+(run.stats?.failures||0)+'</td>'+
+      '<td><button data-act="select" data-run="'+run.id+'">Select</button> '+
+      '<button data-act="delete" data-run="'+run.id+'" class="secondary" style="background:#d32f2f">Del</button></td>';
+    tb.appendChild(tr);
+  });
+}
+
+document.querySelector('#runsTable').addEventListener('click', async e=>{
+  const act=e.target.getAttribute('data-act');
+  const run=e.target.getAttribute('data-run');
+  if(!act||!run) return;
+  if(act==='select'){
+    currentRun=run;
+    $('#hostRun').value=run;
+    await loadSuggestions(run);
+    $('#prepNotice').style.display='none';
+    $('#prepPanel').style.display='block';
+  } else if(act==='delete'){
+    if(confirm('Delete run '+run+'?')){
+      await fetch('/api/delete-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:run})});
+      loadRuns();
+    }
+  }
+});
+
+$('#btnRun').addEventListener('click', async ()=>{
+  const urls=$('#seeds').value.trim().split(/\\n+/).filter(Boolean);
+  if(!urls.length){ alert('Add at least one URL'); return; }
+  const options={};
+  if($('#optProfiles').checked) options.profiles='desktop,mobile';
+  if($('#optAggressive').checked) options.aggressiveCapture=true;
+  if($('#optScroll').checked) options.scrollPasses=2;
+  if($('#optPreserve').checked) options.preserveAssetPaths=true;
+  if($('#optAutoExpand').checked){
+    options.autoExpandDepth=1;
+    options.autoExpandMaxPages=50;
+  }
+  const resp=await fetch('/api/run',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ urlsText: urls.join('\\n'), options })
+  });
+  const json=await resp.json();
+  $('#runLog').textContent='Started run '+json.runId+' (check Live Log).';
+  setTimeout(loadRuns,2000);
+});
+
+$('#btnHost').addEventListener('click', async ()=>{
+  if(!currentRun){ alert('Select a run first'); return; }
+  const port=$('#hostPort').value.trim()||'8081';
+  const r=await fetch('/api/host-run',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ runId:currentRun, port })
+  });
+  const j=await r.json();
+  $('#hostLog').textContent='Hosting '+j.runId+' on port '+j.port;
+});
+
+$('#btnStopHost').addEventListener('click', async ()=>{
+  await fetch('/api/stop-host',{method:'POST'});
+  $('#hostLog').textContent+='\\nHost stop requested.';
+});
+
+async function loadPlatforms(){
+  const r=await fetch('/api/hosting-presets');
+  const j=await r.json();
+  platforms=j.platforms||[];
+  const sel=$('#platform');
+  sel.innerHTML='';
+  platforms.forEach(p=>{
+    const o=document.createElement('option');
+    o.value=p.id; o.textContent=p.label;
+    sel.appendChild(o);
+  });
+  sel.value='generic';
+}
+
+$('#platform').addEventListener('change', ()=>{
+  const val=$('#platform').value;
+  const preset=platforms.find(p=>p.id===val);
+  if(preset?.recommends?.precompress!==undefined){
+    $('#precompress').checked = preset.recommends.precompress;
+  }
+  if(val==='cloudflare'){ $('#precompress').title='Edge compression automatic; optional.'; }
+  if(val==='shopify'){ $('#shopifyEmbed').checked=true; document.querySelector('input[name="mode"][value="switch"]').checked=true; }
+});
+
+async function loadSuggestions(runId){
+  try{
+    const r=await fetch('/api/runs/'+runId+'/prepare-suggestions');
+    if(!r.ok){ throw new Error('suggestions failed'); }
+    const s=await r.json();
+    // apply
+    document.querySelectorAll('input[name="mode"]').forEach(radio=>{
+      radio.checked = (radio.value===s.recommendations.mode);
+    });
+    $('#includeMobile').checked=s.hasMobile;
+    $('#stripAnalytics').checked=s.recommendations.stripAnalytics;
+    $('#precompress').checked=s.recommendations.precompress;
+    $('#serviceWorker').checked=!s.recommendations.noServiceWorker;
+    $('#baseUrl').value=s.recommendations.baseUrl || '';
+    $('#suggestLine').textContent = [
+      'pages='+s.pages,
+      'mobile='+s.hasMobile,
+      'assets˜'+s.totalAssetsApprox,
+      'largestInline='+s.largestInlineScriptBytes,
+      'analyticsMatches='+s.analyticsMatches,
+      'suggestMode='+s.recommendations.mode
+    ].join(' | ');
+  }catch(e){
+    $('#suggestLine').className='notice error';
+    $('#suggestLine').textContent='Failed to load suggestions: '+e.message;
+  }
+}
+
+$('#btnPrepare').addEventListener('click', async ()=>{
+  if(!currentRun){ alert('Select a run first'); return; }
+  const mode=document.querySelector('input[name="mode"]:checked').value;
+  const payload={
+    runId: currentRun,
+    options:{
+      mode,
+      includeMobile: $('#includeMobile').checked,
+      stripAnalytics: $('#stripAnalytics').checked,
+      serviceWorker: $('#serviceWorker').checked,
+      precompress: $('#precompress').checked,
+      sitemap: $('#sitemap').checked,
+      baseUrl: $('#baseUrl').value.trim(),
+      extraAnalyticsRegex: $('#extraAnalytics').value.trim(),
+      platform: $('#platform').value,
+      shopifyEmbed: $('#shopifyEmbed').checked,
+      createZip: $('#createZip').checked
+    }
+  };
+  $('#prepLog').textContent='Submitting hosting job...';
+  const r=await fetch('/api/hosting-jobs',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  });
+  const j=await r.json();
+  if(j.jobId){
+    $('#prepLog').textContent='Hosting job '+j.jobId+' started.';
+    pollHostingJobs();
+  } else {
+    $('#prepLog').textContent='Error: '+JSON.stringify(j);
+  }
+});
+
+async function pollHostingJobs(){
+  const r=await fetch('/api/hosting-jobs');
+  if(!r.ok) return;
+  const jobs=await r.json();
+  const tb=document.querySelector('#hostingJobsTable tbody');
+  tb.innerHTML='';
+  jobs.sort((a,b)=> (a.startedAt < b.startedAt ? 1:-1));
+  jobs.forEach(j=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+j.id+'</td>'+
+      '<td>'+j.runId+'</td>'+
+      '<td>'+j.status+'</td>'+
+      '<td>'+(j.zip?'<a href="/api/hosting-jobs/'+j.id+'/download">zip</a>':'')+'</td>'+
+      '<td><button data-j="'+j.id+'" data-act="view">View</button></td>';
+    tb.appendChild(tr);
+  });
+}
+
+document.querySelector('#hostingJobsTable').addEventListener('click', async e=>{
+  const act=e.target.getAttribute('data-act');
+  const id=e.target.getAttribute('data-j');
+  if(act==='view'){
+    const r=await fetch('/api/hosting-jobs/'+id);
+    if(!r.ok) return;
+    const j=await r.json();
+    const tail=j.log.slice(-60).join('\\n');
+    $('#prepLog').textContent='Job '+id+' status='+j.status+'\\n---- LOG ----\\n'+tail;
+  }
+});
+
+setInterval(()=>{ loadRuns(); pollHostingJobs(); }, 5000);
+
+startSSE();
+loadRuns();
+loadPlatforms();
+pollHostingJobs();
+</script>
+</body>
+</html>

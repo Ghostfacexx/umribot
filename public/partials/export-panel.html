@@ -1,0 +1,15 @@
+<section class="card" id="platform-export-card" style="margin-top: 16px;">
+  <div class="card-header">Platform export</div>
+  <div class="card-body">
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <label for="exportPlatform" style="min-width:120px;">Platform</label>
+      <select id="exportPlatform" class="form-select" style="max-width:220px;">
+        <option value="woocommerce">WooCommerce</option>
+        <option value="shopify">Shopify</option>
+      </select>
+      <button id="exportRunBtn" class="btn btn-primary">Export</button>
+      <span id="exportStatus" style="margin-left:8px; color:#555;"></span>
+    </div>
+    <div id="exportResult" style="margin-top:8px; font-family:monospace;"></div>
+  </div>
+</section>

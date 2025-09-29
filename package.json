@@ -10,7 +10,8 @@
   },
   "type": "module",
   "bin": {
-    "single-file": "single-file-node.js"
+    "single-file": "single-file-node.js",
+    "parser": "bin/parser"
   },
   "main": "options.js",
   "directories": {

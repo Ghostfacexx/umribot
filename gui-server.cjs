@@ -298,7 +298,9 @@ function buildArchiverEnv(options){
     PROFILES: o.profiles || d.profiles,
     SAME_SITE_MODE: o.sameSiteMode || d.sameSiteMode,
     INTERNAL_HOSTS_REGEX: o.internalHostsRegex || d.internalHostsRegex,
-    TARGET_PLATFORM: (o.targetPlatform || d.targetPlatform)
+    TARGET_PLATFORM: (o.targetPlatform || d.targetPlatform),
+    // network hardening
+    DISABLE_HTTP2: (o.disableHttp2 ? 'true' : 'false')
   };
 }
 

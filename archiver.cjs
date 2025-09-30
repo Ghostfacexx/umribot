@@ -271,7 +271,11 @@ function chooseUA(profile){
 }
 async function createBrowser(proxyObj){
   const args=['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'];
-  if(DISABLE_HTTP2 && ENGINE==='chromium') args.push('--disable-http2');
+  if(DISABLE_HTTP2 && ENGINE==='chromium'){
+    args.push('--disable-http2');
+    args.push('--disable-quic');
+    args.push('--disable-features=UseChromeLayeredNetworkStack');
+  }
   const launch={ headless:HEADLESS };
   if(proxyObj) launch.proxy={ server:proxyObj.server, username:proxyObj.username, password:proxyObj.password };
   if(ENGINE==='chromium') launch.args=args;

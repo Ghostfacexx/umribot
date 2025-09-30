@@ -200,7 +200,9 @@ function buildCrawlEnv(options, dir, startUrls) {
     PAGE_TIMEOUT: String(o.pageTimeout ?? getCrawlerDefaults().pageTimeout),
     ENGINE: (o.engine || getCrawlerDefaults().engine),
     HEADLESS: (o.headless===false?'false':'true'),
-    DISABLE_HTTP2: (o.disableHttp2?'true':'false')
+    DISABLE_HTTP2: (o.disableHttp2?'true':'false'),
+    PAGE_WAIT_UNTIL: o.pageWaitUntil || 'domcontentloaded',
+    STEALTH: (o.stealth===false?'false':'true')
   };
 }
 
@@ -741,7 +743,10 @@ app.post('/api/run',(req,res)=>{
         waitAfterLoad: crawlOptions.waitAfterLoad,
         navTimeout: crawlOptions.navTimeout,
         pageTimeout: crawlOptions.pageTimeout,
-        disableHttp2: (options.disableHttp2 || crawlOptions.disableHttp2)
+          disableHttp2: (options.disableHttp2 || crawlOptions.disableHttp2),
+          // pass key archiver options to crawler for parity
+          pageWaitUntil: options.pageWaitUntil,
+          stealth: (options.stealth !== false)
       }, dir, directURLs),
       DISABLE_AUTO_ALLOW: 'true'
     };

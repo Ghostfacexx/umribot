@@ -95,11 +95,13 @@ const NAV_TIMEOUT       = parseInt(process.env.NAV_TIMEOUT||'15000',10);
 const PAGE_TIMEOUT      = parseInt(process.env.PAGE_TIMEOUT||'45000',10); // (placeholder)
 const USER_AGENT = process.env.USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const PAGE_WAIT_UNTIL = (process.env.PAGE_WAIT_UNTIL || 'domcontentloaded');
 
 // Engine/headless for parity with archiver
 const ENGINE = (process.env.ENGINE || 'chromium').toLowerCase();
 const HEADLESS = flag('HEADLESS', true);
 const DISABLE_HTTP2 = flag('DISABLE_HTTP2', false);
+const STEALTH = flag('STEALTH', true);
 
 const PROXIES_FILE  = process.env.PROXIES_FILE || '';
 const STABLE_SESSION= flag('STABLE_SESSION', true);
@@ -192,6 +194,31 @@ async function createBrowser(proxyObj){
   return bt.launch(launch);
 }
 
+async function applyStealth(context){
+  if(!STEALTH) return;
+  try {
+    await context.addInitScript(() => {
+      try { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); } catch {}
+    });
+    await context.addInitScript(() => {
+      try { Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] }); } catch {}
+    });
+    await context.addInitScript(() => {
+      try { Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] }); } catch {}
+    });
+    await context.addInitScript(() => {
+      try {
+        const gp = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(param){
+          if (param === 37445) return 'Intel Inc.';
+          if (param === 37446) return 'Intel Iris OpenGL Engine';
+          return gp.apply(this, [param]);
+        };
+      } catch {}
+    });
+  } catch {}
+}
+
 /* Optional STOP flag file */
 function stopFlagPath(outDir){
   return path.join(outDir,'_crawl','STOP');
@@ -230,6 +257,7 @@ async function crawl(){
     viewport:{width:1366,height:900},
     locale:'en-US'
   });
+  await applyStealth(context);
 
   async function processItem(item){
     if (pagesCrawled >= MAX_PAGES) return;
@@ -242,7 +270,7 @@ async function crawl(){
     try {
       page=await context.newPage();
       page.setDefaultNavigationTimeout(NAV_TIMEOUT);
-      await page.goto(item.url,{ waitUntil:'domcontentloaded' });
+  await page.goto(item.url,{ waitUntil: PAGE_WAIT_UNTIL });
       if (WAIT_AFTER_LOAD>0) await page.waitForTimeout(WAIT_AFTER_LOAD);
       // Mark visited
       visitedOrder.push(item.url);

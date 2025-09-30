@@ -29,7 +29,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const js = await res.json();
+      const js = await window.safeParseJson(res);
       if (!res.ok || js.error) {
         status.textContent = 'Error: ' + (js.error || ('HTTP ' + res.status));
         return;

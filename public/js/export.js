@@ -9,7 +9,7 @@
   // Fallback: try to infer last run from /api/runs when user clicks Export
   async function getLastRunId() {
     const res = await fetch('/api/runs');
-    const js = await res.json();
+    const js = await window.safeParseJson(res);
     if (js && js.runs && js.runs.length) return js.runs[0].id;
     return null;
   }
@@ -35,7 +35,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId, platform })
       });
-      const js = await res.json();
+      const js = await window.safeParseJson(res);
       if (!res.ok || !js.ok) {
         statusEl.textContent = 'Failed';
         resultEl.textContent = (js && js.error) ? js.error : ('HTTP ' + res.status);

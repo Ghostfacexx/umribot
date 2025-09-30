@@ -59,7 +59,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ seed, depth, maxPages })
         });
-        const js = await res.json().catch(()=>({}));
+        const js = await window.safeParseJson(res);
         if (!res.ok || !js.ok){
           poStatus.textContent = 'Failed.';
           poLog.textContent = (js && js.error) ? js.error : `HTTP ${res.status}`;

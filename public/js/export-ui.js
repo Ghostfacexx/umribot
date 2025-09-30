@@ -90,7 +90,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId, platform })
       });
-      const js = await res.json();
+      const js = await window.safeParseJson(res);
       if (!res.ok || !js.ok) {
         statusEl.textContent = 'Failed';
         resultEl.textContent = (js && js.error) ? js.error : ('HTTP ' + res.status);
@@ -124,7 +124,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dir: lastOutDirAbs })
       });
-      const js = await res.json();
+      const js = await window.safeParseJson(res);
       if (!res.ok || !js.ok) {
         statusEl.textContent = 'ZIP failed';
         resultEl.textContent = js.error || ('HTTP ' + res.status);

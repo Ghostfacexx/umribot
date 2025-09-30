@@ -57,7 +57,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const https = require('https');
 
@@ -95,6 +95,10 @@ const NAV_TIMEOUT       = parseInt(process.env.NAV_TIMEOUT||'15000',10);
 const PAGE_TIMEOUT      = parseInt(process.env.PAGE_TIMEOUT||'45000',10); // (placeholder)
 const USER_AGENT = process.env.USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+// Engine/headless for parity with archiver
+const ENGINE = (process.env.ENGINE || 'chromium').toLowerCase();
+const HEADLESS = flag('HEADLESS', true);
 
 const PROXIES_FILE  = process.env.PROXIES_FILE || '';
 const STABLE_SESSION= flag('STABLE_SESSION', true);
@@ -172,12 +176,13 @@ function normalizeURL(raw, rootHost){
 /* Browser creation (chromium only for speed; can be extended) */
 async function createBrowser(proxyObj){
   const args=['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'];
-  const launch={ headless:true };
+  const launch={ headless:HEADLESS };
   if(proxyObj){
     launch.proxy={ server:proxyObj.server, username:proxyObj.username, password:proxyObj.password };
   }
   launch.args=args;
-  return chromium.launch(launch);
+  const bt = ENGINE==='firefox' ? firefox : ENGINE==='webkit' ? webkit : chromium;
+  return bt.launch(launch);
 }
 
 /* Optional STOP flag file */

@@ -164,6 +164,7 @@ summary{cursor:pointer;font-weight:600}
     <button id="btnStart">Start Run</button>
     <button id="btnStop" class="secondary" disabled>Stop Run</button>
     <button id="btnForceRefresh" class="secondary">Refresh Runs</button>
+    <button id="btnInstallBrowsers" class="secondary" title="Install Playwright browsers (chromium)">Install Browsers</button>
   </div>
 
   <details style="margin-top:.6rem">
@@ -256,140 +257,14 @@ summary{cursor:pointer;font-weight:600}
   <pre id="liveLog"></pre>
 </section>
 
-</main>
-<script src="/static/js/ui-helpers.js"></script>
-<script src="/static/app.js"></script>
-<script src="/static/js/export.js"></script>
-<script src="/static/js/prep-run.js"></script>
-<script src="/static/js/prime-products.js"></script>
-<script src="/static/js/delete-run-ui.js"></script>
-<script src="/static/js/products-only-ui.js"></script>
-<script src="/static/js/woo-fast-preset.js"></script>
-<script>
-// Initialize tooltips and enhanced UI features
-document.addEventListener('DOMContentLoaded', function() {
-  if (window.UIHelpers) {
-    window.UIHelpers.createTooltipSystem();
-    initializeTooltipsForAdvancedUI();
-  }
-});
-
-function initializeTooltipsForAdvancedUI() {
-  if (!window.UIHelpers) return;
-  
-  // Find elements by their text content or nearby elements and add tooltips
-  // Capture options
-  const profilesCheckbox = document.querySelector('input[type="checkbox"][id*="desktop"]') || 
-                          document.querySelector('label[class*="opt"] input[type="checkbox"]');
-  if (profilesCheckbox) {
-    window.UIHelpers.addHelpIcon(profilesCheckbox.closest('label'), 
-      'Capture both desktop and mobile versions of pages for responsive hosting');
-  }
-  
-  const aggressiveCheckbox = document.querySelector('input[type="checkbox"]') ? 
-    Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-      el.closest('label')?.textContent?.includes('aggressive')) : null;
-  if (aggressiveCheckbox) {
-    window.UIHelpers.addHelpIcon(aggressiveCheckbox.closest('label'), 
-      'Enable aggressive capture mode for complex sites with dynamic content');
-  }
-  
-  const scrollCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('scroll'));
-  if (scrollCheckbox) {
-    window.UIHelpers.addHelpIcon(scrollCheckbox.closest('label'), 
-      'Perform scroll passes to trigger lazy-loaded images and content');
-  }
-  
-  // Auto-expand settings
-  const expandInputs = document.querySelectorAll('input[type="number"]');
-  if (expandInputs.length >= 2) {
-    window.UIHelpers.addHelpIcon(expandInputs[0], 
-      'Number of additional pages to discover and capture automatically');
-    window.UIHelpers.addHelpIcon(expandInputs[1], 
-      'Maximum time to spend on auto-expansion (seconds)');
-  }
-  
-  const sameHostCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('same host'));
-  if (sameHostCheckbox) {
-    window.UIHelpers.addHelpIcon(sameHostCheckbox.closest('label'), 
-      'Only discover links within the same domain');
-  }
-  
-  const subdomainsCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('subdomain'));
-  if (subdomainsCheckbox) {
-    window.UIHelpers.addHelpIcon(subdomainsCheckbox.closest('label'), 
-      'Include subdomains when discovering pages');
-  }
-  
-  // Hosting options
-  const stripAnalyticsCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('analytics'));
-  if (stripAnalyticsCheckbox) {
-    window.UIHelpers.addHelpIcon(stripAnalyticsCheckbox.closest('label'), 
-      'Remove analytics and tracking code from captured pages');
-  }
-  
-  const serviceWorkerCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('SW'));
-  if (serviceWorkerCheckbox) {
-    window.UIHelpers.addHelpIcon(serviceWorkerCheckbox.closest('label'), 
-      'Include service worker for offline browsing support');
-  }
-  
-  const precompressCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('precompress'));
-  if (precompressCheckbox) {
-    window.UIHelpers.addHelpIcon(precompressCheckbox.closest('label'), 
-      'Create pre-compressed .gz and .br files for faster loading');
-  }
-  
-  const sitemapCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('sitemap'));
-  if (sitemapCheckbox) {
-    window.UIHelpers.addHelpIcon(sitemapCheckbox.closest('label'), 
-      'Generate sitemap.xml and robots.txt for SEO');
-  }
-  
-  const zipCheckbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(el => 
-    el.closest('label')?.textContent?.includes('zip'));
-  if (zipCheckbox) {
-    window.UIHelpers.addHelpIcon(zipCheckbox.closest('label'), 
-      'Create a downloadable ZIP archive of the hosting package');
-  }
-  
-  // Add general hints
-  const captureSection = document.querySelector('section');
-  if (captureSection) {
-    const hint = window.UIHelpers.createHint(
-      'Capture Process', 
-      'Enter URLs to capture and archive. The system will download pages with all assets for offline hosting.'
-    );
-    captureSection.insertBefore(hint, captureSection.querySelector('textarea'));
-  }
-  
-  const runsSection = Array.from(document.querySelectorAll('section')).find(section => 
-    section.querySelector('h2')?.textContent?.includes('Runs'));
-  if (runsSection) {
-    const hint = window.UIHelpers.createHint(
-      'Run Management', 
-      'Select a completed run to host it or prepare it for deployment. Runs appear here as they complete.'
-    );
-    runsSection.insertBefore(hint, runsSection.querySelector('table') || runsSection.querySelector('div'));
-  }
-  
-  const hostSection = Array.from(document.querySelectorAll('section')).find(section => 
-    section.querySelector('h2')?.textContent?.includes('Host'));
-  if (hostSection) {
-    const hint = window.UIHelpers.createHint(
-      'Local Hosting', 
-      'Host your captured content on a local development server. Automatically handles desktop/mobile variants.'
-    );
-    hostSection.insertBefore(hint, hostSection.querySelector('.flex') || hostSection.querySelector('input'));
-  }
-}
-</script>
+ </main>
+<script src="/static/js/util.js?v=20250930"></script>
+<script src="/static/app.js?v=20250930"></script>
+<script src="/static/js/export.js?v=20250930"></script>
+<script src="/static/js/prep-run.js?v=20250930"></script>
+<script src="/static/js/prime-products.js?v=20250930"></script>
+<script src="/static/js/delete-run-ui.js?v=20250930"></script>
+<script src="/static/js/products-only-ui.js?v=20250930"></script>
+<script src="/static/js/woo-fast-preset.js?v=20250930"></script>
 </body>
 </html>

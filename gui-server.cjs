@@ -49,6 +49,248 @@ const MAX_LOG=6000;
 let sseClients=[];
 let runs=[];
 const hosts = new Map();
+let installingBrowsers = false;
+
+/* ---------- Playwright Browser Installer ---------- */
+app.post('/api/playwright/install', async (req,res)=>{
+  try{
+    if(installingBrowsers) return res.status(409).json({error:'install already in progress'});
+    const { browsers=['chromium'], withDeps=false } = req.body||{};
+    const args=['playwright','install', ...browsers];
+    if(withDeps) args.push('--with-deps');
+    installingBrowsers = true;
+    push('[PW] install start args='+JSON.stringify(args));
+    const child = spawn('npx', args, { env: process.env });
+    child.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[PW] '+l)));
+    child.stderr.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[PW:ERR] '+l)));
+    child.on('exit',code=>{
+      push('[PW] install exit code='+code);
+      installingBrowsers=false;
+    });
+    // Respond immediately; logs will stream via SSE
+    res.json({ ok:true, started:true, args, note:'Progress is streamed in Live Log' });
+  }catch(e){ installingBrowsers=false; res.status(500).json({ error:e.message }); }
+});
+
+/* ---------------- Centralized Settings & Defaults ---------------- */
+// Minimal UI help text registry (IDs correspond to inputs in public/index.html)
+const UI_SETTINGS_HELP = {
+  // Quick capture toggles
+  optProfiles: 'Capture both desktop and mobile profiles if enabled (PROFILES=desktop,mobile).',
+  optAggressive: 'Enable aggressive capture mode to click and expand more dynamic content.',
+  optPreserve: 'Preserve original asset paths where possible instead of hashing.',
+  optScroll: 'Perform extra scroll passes to trigger lazy-loaded content.',
+
+  // Auto-expand discovery from provided seeds
+  autoDepth: 'Auto-expand BFS depth. 0 disables auto-expand.',
+  autoMaxPages: 'Maximum pages to fetch during auto-expand phase.',
+  autoSameHost: 'Restrict auto-expand to the same host.',
+  autoSubs: 'Include subdomains during auto-expand.',
+  autoAllow: 'Optional allow regex. Only URLs matching this will be considered.',
+  autoDeny: 'Optional deny regex. URLs matching this pattern will be excluded.',
+
+  // Crawl-first section
+  crawlSeeds: 'Seeds list for a preliminary crawl phase (one per line).',
+  crawlDepth: 'Crawl BFS depth limit. 0 = only the seeds.',
+  crawlMaxPages: 'Total pages to fetch during the crawl phase.',
+  crawlWait: 'Wait (ms) after DOMContentLoaded before extracting links.',
+  crawlSameHost: 'Restrict crawl to same host.',
+  crawlSubs: 'Include subdomains during crawl.',
+  crawlAllow: 'Crawl allow regex (optional).',
+  crawlDeny: 'Crawl deny regex (optional).',
+
+  // Advanced capture
+  advEngine: 'Browser engine to use for capture (chromium recommended for speed).',
+  advConcurrency: 'Concurrent pages to process. Increase carefully to avoid rate limits.',
+  advHeadless: 'Run browser in headless mode. Disable for debugging or visual checks.',
+  advWaitUntil: 'waitUntil for page navigation lifecycle (e.g., domcontentloaded, load).',
+  advWaitExtra: 'Extra wait (ms) after waitUntil to stabilize dynamic pages.',
+  advQuietMillis: 'Quiet period (ms) with no network to consider the page idle.',
+  advNavTimeout: 'Navigation timeout (ms) per page.',
+  advPageTimeout: 'Overall per-page timeout (ms).',
+  advMaxCapMs: 'Global max capture time (ms). 0 = unlimited.',
+  advScrollDelay: 'Delay (ms) between scroll steps during capture.',
+  advInlineSmall: 'Inline small assets under this size (bytes). 0 disables.',
+  advAssetMax: 'Skip assets larger than this size (bytes).',
+  advRewriteInternal: 'Rewrite internal links to point to archived locations.',
+  advMirrorSubs: 'Mirror subdomains inside the archive.',
+  advMirrorCross: 'Mirror cross-origin assets and pages as allowed.',
+  advIncludeCO: 'Allow including cross-origin requests where safe.',
+  advRewriteHtmlAssets: 'Rewrite asset URLs found in HTML documents.',
+  advFlattenRoot: 'Flatten root index to index.html (avoid nested index).',
+  advInternalRegex: 'Regex to determine internal hosts/paths for rewriting.',
+  advDomainFilter: 'Optional domain filter list to limit capture scope.',
+  advClickSelectors: 'CSS selectors to click after load (one per line).',
+  advRemoveSelectors: 'CSS selectors to remove from pages (one per line).',
+  advSkipDownload: 'Skip downloading assets matching these patterns (one per line).',
+
+  // Consent handling
+  advConsentButtons: 'List of button texts that accept/close consent prompts.',
+  advConsentExtraSel: 'Extra CSS selectors to trigger for consent banners.',
+  advConsentForceRemove: 'Force removal selectors for stubborn consent overlays.',
+  advConsentRetries: 'Number of retry attempts to handle consent.',
+  advConsentInterval: 'Interval (ms) between consent retries.',
+  advConsentWindow: 'Observe DOM mutations (ms) to catch late consent elements.',
+  advConsentIframeScan: 'Scan iframes for consent prompts (slower).',
+  advConsentDebug: 'Enable debug logs for consent automation.',
+  advConsentScreenshot: 'Take debug screenshots during consent handling.',
+  advForceConsentWait: 'Force an additional wait period for consent (ms in next field).',
+  advForceConsentWaitMs: 'Milliseconds to wait when forced consent wait is enabled.',
+
+  // Hosting prep
+  hpMobile: 'Include a mobile variant in the prepared package.',
+  hpStrip: 'Strip analytics scripts during hosting preparation.',
+  hpSW: 'Generate and include a Service Worker for offline support.',
+  hpCompress: 'Precompress files (gzip/brotli) during packaging.',
+  hpSitemap: 'Include sitemap.xml for the prepared package.',
+  hpZip: 'Create a downloadable ZIP for the package.',
+  hpShopify: 'Enable Shopify embed mode tweaks.',
+  hpPlatform: 'Target platform preset to tailor output for.',
+  hpBaseUrl: 'Base URL used for sitemap and absolute link rewrites.',
+  hpExtraRegex: 'Additional analytics regex to strip (optional).'
+};
+
+function getCrawlerDefaults(){
+  return {
+    maxPages: 200,
+    maxDepth: 3,
+    sameHostOnly: true,
+    includeSubdomains: true,
+    allowRegex: '',
+    denyRegex: '',
+    waitAfterLoad: 500,
+    navTimeout: 15000,
+    pageTimeout: 45000,
+    engine: 'chromium',
+    headless: true
+  };
+}
+
+function buildCrawlEnv(options, dir, startUrls) {
+  const o = options || {};
+  return {
+    ...process.env,
+    START_URLS: (startUrls||[]).join('\n'),
+    OUTPUT_DIR: dir,
+    MAX_PAGES: String(o.maxPages ?? getCrawlerDefaults().maxPages),
+    MAX_DEPTH: String(o.maxDepth ?? getCrawlerDefaults().maxDepth),
+    SAME_HOST_ONLY: (o.sameHostOnly === false ? 'false' : 'true'),
+    INCLUDE_SUBDOMAINS: (o.includeSubdomains === false ? 'false' : 'true'),
+    ALLOW_REGEX: o.allowRegex || '',
+    DENY_REGEX: o.denyRegex || '',
+    WAIT_AFTER_LOAD: String(o.waitAfterLoad ?? getCrawlerDefaults().waitAfterLoad),
+    NAV_TIMEOUT: String(o.navTimeout ?? getCrawlerDefaults().navTimeout),
+    PAGE_TIMEOUT: String(o.pageTimeout ?? getCrawlerDefaults().pageTimeout),
+    ENGINE: (o.engine || getCrawlerDefaults().engine),
+    HEADLESS: (o.headless===false?'false':'true')
+  };
+}
+
+function getArchiverDefaults(){
+  return {
+    engine: 'chromium',
+    concurrency: 2,
+    headless: true,
+    includeCrossOrigin: false,
+    waitExtra: 700,
+    navTimeout: 20000,
+    pageTimeout: 40000,
+    mirrorProducts: false,
+    scrollPasses: 0,
+    scrollDelay: 250,
+    assetMaxBytes: 3*1024*1024,
+    rewriteInternal: true,
+    internalRewriteRegex: '',
+    domainFilter: '',
+    preserveAssetPaths: false,
+    rewriteHtmlAssets: true,
+    mirrorSubdomains: true,
+    mirrorCrossOrigin: false,
+    inlineSmallAssets: 0,
+    pageWaitUntil: 'domcontentloaded',
+    quietMillis: 1500,
+    maxCaptureMs: 0,
+    clickSelectors: '',
+    consentButtonTexts: '',
+    consentExtraSelectors: '',
+    consentForceRemoveSelectors: '',
+    consentRetryAttempts: 12,
+    consentRetryInterval: 700,
+    consentMutationWindow: 8000,
+    consentIframeScan: false,
+    consentDebug: false,
+    consentDebugScreenshot: false,
+    forceConsentWaitMs: 0,
+    removeSelectors: '',
+    skipDownloadPatterns: '',
+    flattenRoot: false,
+    aggressiveCapture: false,
+    profiles: (process.env.PROFILES || 'desktop,mobile'),
+    sameSiteMode: (process.env.SAME_SITE_MODE || 'etld'),
+    internalHostsRegex: (process.env.INTERNAL_HOSTS_REGEX || ''),
+    targetPlatform: (process.env.TARGET_PLATFORM || 'generic').toLowerCase()
+  };
+}
+
+function buildArchiverEnv(options){
+  const d = getArchiverDefaults();
+  const o = options || {};
+  const maxCap = (Object.prototype.hasOwnProperty.call(o,'maxCaptureMs'))
+    ? Number(o.maxCaptureMs || 0)
+    : d.maxCaptureMs;
+  return {
+    ...process.env,
+    ENGINE: o.engine || d.engine,
+    CONCURRENCY: String(o.concurrency ?? d.concurrency),
+    HEADLESS: (o.headless===false?'false':'true'),
+    INCLUDE_CROSS_ORIGIN: (o.includeCrossOrigin?'true':'false'),
+    WAIT_EXTRA: String(o.waitExtra ?? d.waitExtra),
+    NAV_TIMEOUT_MS: String(o.navTimeout ?? d.navTimeout),
+    PAGE_TIMEOUT_MS: String(o.pageTimeout ?? d.pageTimeout),
+    PRODUCT_MIRROR_ENABLE: (o.mirrorProducts ? 'true' : 'false'),
+    SCROLL_PASSES: String(o.scrollPasses ?? d.scrollPasses),
+    SCROLL_DELAY: String(o.scrollDelay ?? d.scrollDelay),
+    ASSET_MAX_BYTES: String(o.assetMaxBytes ?? d.assetMaxBytes),
+    REWRITE_INTERNAL: (o.rewriteInternal===false?'false':'true'),
+    INTERNAL_REWRITE_REGEX: o.internalRewriteRegex || d.internalRewriteRegex,
+    DOMAIN_FILTER: o.domainFilter || d.domainFilter,
+    PRESERVE_ASSET_PATHS: (o.preserveAssetPaths?'true':'false'),
+    REWRITE_HTML_ASSETS: (o.rewriteHtmlAssets===false?'false':'true'),
+    MIRROR_SUBDOMAINS: (o.mirrorSubdomains===false?'false':'true'),
+    MIRROR_CROSS_ORIGIN: (o.mirrorCrossOrigin?'true':'false'),
+    INLINE_SMALL_ASSETS: String(o.inlineSmallAssets ?? d.inlineSmallAssets),
+    PAGE_WAIT_UNTIL: o.pageWaitUntil || d.pageWaitUntil,
+    QUIET_MILLIS: String(o.quietMillis ?? d.quietMillis),
+    MAX_CAPTURE_MS: String(maxCap),
+    CLICK_SELECTORS: (o.clickSelectors || d.clickSelectors).trim(),
+    CONSENT_BUTTON_TEXTS: (o.consentButtonTexts || d.consentButtonTexts).trim(),
+    CONSENT_EXTRA_SELECTORS: (o.consentExtraSelectors || d.consentExtraSelectors).trim(),
+    CONSENT_FORCE_REMOVE_SELECTORS: (o.consentForceRemoveSelectors || d.consentForceRemoveSelectors).trim(),
+    CONSENT_RETRY_ATTEMPTS: String(o.consentRetryAttempts ?? d.consentRetryAttempts),
+    CONSENT_RETRY_INTERVAL_MS: String(o.consentRetryInterval ?? d.consentRetryInterval),
+    CONSENT_MUTATION_WINDOW_MS: String(o.consentMutationWindow ?? d.consentMutationWindow),
+    CONSENT_IFRAME_SCAN: (o.consentIframeScan?'true':'false'),
+    CONSENT_DEBUG: (o.consentDebug?'true':'false'),
+    CONSENT_DEBUG_SCREENSHOT: (o.consentDebugScreenshot?'true':'false'),
+    FORCE_CONSENT_WAIT_MS: String(o.forceConsentWaitMs ?? d.forceConsentWaitMs),
+    REMOVE_SELECTORS: (o.removeSelectors || d.removeSelectors).trim(),
+    SKIP_DOWNLOAD_PATTERNS: (o.skipDownloadPatterns || d.skipDownloadPatterns).trim(),
+    FLATTEN_ROOT_INDEX: (o.flattenRoot?'1':'0'),
+    AGGRESSIVE_CAPTURE: (o.aggressiveCapture?'true':'false'),
+    PROFILES: o.profiles || d.profiles,
+    SAME_SITE_MODE: o.sameSiteMode || d.sameSiteMode,
+    INTERNAL_HOSTS_REGEX: o.internalHostsRegex || d.internalHostsRegex,
+    TARGET_PLATFORM: (o.targetPlatform || d.targetPlatform)
+  };
+}
+
+// API: settings help and defaults for UI tooltips/hints
+app.get('/api/settings',(req,res)=>{
+  res.json({
+    help: UI_SETTINGS_HELP,
+    defaults: { archiver: getArchiverDefaults(), crawler: getCrawlerDefaults() }
+  });
+});
 
 function push(line){
   const l='['+new Date().toISOString()+'] '+line;
@@ -237,6 +479,15 @@ app.post('/api/stop-run',(req,res)=>{
   const jobId=currentJob.id;
   push(`[STOP_REQUEST] id=${jobId} phase=${currentJob.phase}`);
   currentJob.stopRequested=true;
+  // If currently in a crawling phase, drop a STOP flag file to encourage graceful exit
+  try {
+    if(/crawl/i.test(String(currentJob.phase||''))){
+      const flagDir = path.join(currentJob.dir,'_crawl');
+      fs.mkdirSync(flagDir,{recursive:true});
+      fs.writeFileSync(path.join(flagDir,'STOP'),'1');
+      push('[STOP_FLAG] wrote _crawl/STOP');
+    }
+  } catch(e){ push('[STOP_FLAG_ERR] '+e.message); }
   try { currentChildProc.kill('SIGTERM'); } catch(e){ push('[STOP_ERR] '+e.message); }
   const pid=currentChildProc.pid;
   setTimeout(()=>{
@@ -336,20 +587,7 @@ app.post('/api/crawl',(req,res)=>{
   const dir=path.join(BASE,id);
   fs.mkdirSync(dir,{recursive:true});
 
-  const env={
-    ...process.env,
-    START_URLS:startUrls.join('\n'),
-    OUTPUT_DIR:dir,
-    MAX_PAGES:String(crawlOptions.maxPages||200),
-    MAX_DEPTH:String(crawlOptions.maxDepth||3),
-    SAME_HOST_ONLY:crawlOptions.sameHostOnly===false?'false':'true',
-    INCLUDE_SUBDOMAINS:crawlOptions.includeSubdomains===false?'false':'true',
-    ALLOW_REGEX:crawlOptions.allowRegex||'',
-    DENY_REGEX:crawlOptions.denyRegex||'',
-    WAIT_AFTER_LOAD:String(crawlOptions.waitAfterLoad||500),
-    NAV_TIMEOUT:String(crawlOptions.navTimeout || 15000),
-    PAGE_TIMEOUT:String(crawlOptions.pageTimeout || 45000)
-  };
+  const env = buildCrawlEnv(crawlOptions, dir, startUrls);
   startingJob = true;
   currentJob={ id, dir, startedAt:Date.now(), phase:'crawl-only', totalUrls:startUrls.length };
   startingJob = false;
@@ -384,55 +622,7 @@ function launchArchiver(id, dir, seedsFile, options, startedAt){
   // Ensure job state exists (prevents null crash)
   ensureCurrentJob(id, dir, startedAt, 'archive');
 
-  // Preserve 0 (unlimited) if provided; default to 0 (unlimited)
-  const maxCap = (options && Object.prototype.hasOwnProperty.call(options,'maxCaptureMs'))
-    ? Number(options.maxCaptureMs || 0)
-    : 0;
-
-  const env={
-    ...process.env,
-    ENGINE: options.engine || 'chromium',
-    CONCURRENCY: String(options.concurrency || 2),
-    HEADLESS: options.headless===false?'false':'true',
-    INCLUDE_CROSS_ORIGIN: options.includeCrossOrigin?'true':'false',
-    WAIT_EXTRA: String(options.waitExtra || 700),
-    NAV_TIMEOUT_MS: String(options.navTimeout || 20000),
-    PAGE_TIMEOUT_MS: String(options.pageTimeout || 40000),
-    PRODUCT_MIRROR_ENABLE: options.mirrorProducts ? 'true' : 'false',
-    SCROLL_PASSES: String(options.scrollPasses || 0),
-    SCROLL_DELAY: String(options.scrollDelay || 250),
-    ASSET_MAX_BYTES: String(options.assetMaxBytes || (3*1024*1024)),
-    REWRITE_INTERNAL: options.rewriteInternal===false?'false':'true',
-    INTERNAL_REWRITE_REGEX: options.internalRewriteRegex || '',
-    DOMAIN_FILTER: options.domainFilter || '',
-    PRESERVE_ASSET_PATHS: options.preserveAssetPaths?'true':'false',
-    REWRITE_HTML_ASSETS: options.rewriteHtmlAssets===false?'false':'true',
-    MIRROR_SUBDOMAINS: options.mirrorSubdomains===false?'false':'true',
-    MIRROR_CROSS_ORIGIN: options.mirrorCrossOrigin?'true':'false',
-    INLINE_SMALL_ASSETS: String(options.inlineSmallAssets || 0),
-    PAGE_WAIT_UNTIL: options.pageWaitUntil || 'domcontentloaded',
-    QUIET_MILLIS: String(options.quietMillis || 1500),
-    MAX_CAPTURE_MS: String(maxCap), // respect 0 (unlimited)
-    CLICK_SELECTORS: (options.clickSelectors || '').trim(),
-    CONSENT_BUTTON_TEXTS: (options.consentButtonTexts || '').trim(),
-    CONSENT_EXTRA_SELECTORS: (options.consentExtraSelectors || '').trim(),
-    CONSENT_FORCE_REMOVE_SELECTORS: (options.consentForceRemoveSelectors || '').trim(),
-    CONSENT_RETRY_ATTEMPTS: String(options.consentRetryAttempts || 12),
-    CONSENT_RETRY_INTERVAL_MS: String(options.consentRetryInterval || 700),
-    CONSENT_MUTATION_WINDOW_MS: String(options.consentMutationWindow || 8000),
-    CONSENT_IFRAME_SCAN: options.consentIframeScan?'true':'false',
-    CONSENT_DEBUG: options.consentDebug?'true':'false',
-    CONSENT_DEBUG_SCREENSHOT: options.consentDebugScreenshot?'true':'false',
-    FORCE_CONSENT_WAIT_MS: String(options.forceConsentWaitMs || 0),
-    REMOVE_SELECTORS: (options.removeSelectors || '').trim(),
-    SKIP_DOWNLOAD_PATTERNS: (options.skipDownloadPatterns || '').trim(),
-    FLATTEN_ROOT_INDEX: options.flattenRoot?'1':'0',
-    AGGRESSIVE_CAPTURE: options.aggressiveCapture?'true':'false',
-    PROFILES: options.profiles || process.env.PROFILES || 'desktop,mobile',
-    SAME_SITE_MODE: options.sameSiteMode || process.env.SAME_SITE_MODE || 'etld',
-    INTERNAL_HOSTS_REGEX: options.internalHostsRegex || process.env.INTERNAL_HOSTS_REGEX || '',
-    TARGET_PLATFORM: (options.targetPlatform || process.env.TARGET_PLATFORM || 'generic').toLowerCase()
-  };
+  const env = buildArchiverEnv(options);
   push(`[JOB_PHASE] archive start id=${id} target=${env.TARGET_PLATFORM}`);
   const child=spawn('node',[ARCHIVER,seedsFile,dir],{ env });
   currentChildProc=child;
@@ -520,20 +710,18 @@ app.post('/api/run',(req,res)=>{
     currentJob={ id, dir, startedAt:Date.now(), phase:'auto-expand', totalUrls:directURLs.length };
     startingJob = false; // gate released
     push(`[JOB_START] id=${id} autoExpandDepth=${autoDepth} seeds=${directURLs.length}`);
-    const env={
-      ...process.env,
-      START_URLS: directURLs.join('\n'),
-      OUTPUT_DIR: dir,
-      MAX_PAGES: String(autoMax),
-      MAX_DEPTH: String(autoDepth),
-      SAME_HOST_ONLY: options.autoExpandSameHostOnly===false?'false':'true',
-      INCLUDE_SUBDOMAINS: options.autoExpandSubdomains===false?'false':'true',
-      ALLOW_REGEX: options.autoExpandAllowRegex || '',
-      DENY_REGEX: options.autoExpandDenyRegex || '',
-      WAIT_AFTER_LOAD: String(crawlOptions.waitAfterLoad || 500),
-      NAV_TIMEOUT: String(crawlOptions.navTimeout || 15000),
-      PAGE_TIMEOUT: String(crawlOptions.pageTimeout || 45000),
-      // Force pages-only discovery; suppress product auto-allow in crawler (if supported)
+    const env = {
+      ...buildCrawlEnv({
+        maxPages: autoMax,
+        maxDepth: autoDepth,
+        sameHostOnly: options.autoExpandSameHostOnly,
+        includeSubdomains: options.autoExpandSubdomains,
+        allowRegex: options.autoExpandAllowRegex,
+        denyRegex: options.autoExpandDenyRegex,
+        waitAfterLoad: crawlOptions.waitAfterLoad,
+        navTimeout: crawlOptions.navTimeout,
+        pageTimeout: crawlOptions.pageTimeout
+      }, dir, directURLs),
       DISABLE_AUTO_ALLOW: 'true'
     };
     const crawlChild=spawn('node',[CRAWLER],{ env });
@@ -571,20 +759,7 @@ app.post('/api/run',(req,res)=>{
     currentJob={ id, dir, startedAt:Date.now(), phase:'crawl', totalUrls:0 };
     startingJob = false;
     push(`[JOB_START] id=${id} crawlFirst=true startSeeds=${startUrls.length}`);
-    const env={
-      ...process.env,
-      START_URLS:startUrls.join('\n'),
-      OUTPUT_DIR:dir,
-      MAX_PAGES:String(crawlOptions.maxPages || 200),
-      MAX_DEPTH:String(crawlOptions.maxDepth || 3),
-      SAME_HOST_ONLY:crawlOptions.sameHostOnly===false?'false':'true',
-      INCLUDE_SUBDOMAINS:crawlOptions.includeSubdomains===false?'false':'true',
-      ALLOW_REGEX:crawlOptions.allowRegex || '',
-      DENY_REGEX:crawlOptions.denyRegex || '',
-      WAIT_AFTER_LOAD:String(crawlOptions.waitAfterLoad || 500),
-      NAV_TIMEOUT:String(crawlOptions.navTimeout || 15000),
-      PAGE_TIMEOUT:String(crawlOptions.pageTimeout || 45000)
-    };
+    const env = buildCrawlEnv(crawlOptions, dir, startUrls);
     const crawlChild=spawn('node',[CRAWLER],{ env });
     currentChildProc=crawlChild;
     crawlChild.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C] '+l)));
@@ -942,6 +1117,27 @@ app.post('/api/export-zip', async (req,res)=>{
 
 /* ---------- Startup ---------- */
 scanExistingRuns();
+    // Back-compat alias; accept empty body and mirror /api/host-stop behavior
+    app.post('/api/stop-host',(req,res)=>{
+      const body = req.body || {};
+      let { port, runId } = body;
+      let entryPort = null;
+      if(port && hosts.has(parseInt(port,10))) {
+        entryPort = parseInt(port,10);
+      } else if(runId) {
+        for(const [p, h] of hosts.entries()) {
+          if(h.runId === runId) { entryPort = p; break; }
+        }
+      } else {
+        // If nothing provided, try to stop the first host
+        const first = [...hosts.keys()][0];
+        if(first!=null) entryPort = first;
+      }
+      if(entryPort==null) return res.status(404).json({error:'host not found'});
+      const entry = hosts.get(entryPort);
+      try { entry.child.kill('SIGTERM'); } catch(e) { push('[HOST_STOP_ERR] '+e.message); }
+      res.json({ ok:true, stoppedPort: entryPort, runId: entry.runId });
+    });
 
 /* ---------- Start Server ---------- */
 app.listen(PORT,'0.0.0.0',()=>{

@@ -21,7 +21,34 @@
   function logLive(m){ append(liveLog,m); }
   function logHost(m){ append(hostLog,m); }
   function logHP(m){ append(hpLog,m); }
-  function fetchJSON(url,opts){ logCap('fetch '+url); return fetch(url,opts).then(r=>{ logCap('fetch '+url+' status='+r.status); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
+  async function fetchJSON(url, opts){
+    // Robust JSON fetch: tolerates empty bodies and logs non-JSON responses gracefully
+    logCap('fetch '+url);
+    const r = await fetch(url, opts);
+    logCap('fetch '+url+' status='+r.status);
+    const text = await r.text();
+    if (!r.ok) {
+      // Prefer server-provided text for diagnostics
+      const msg = text ? ('HTTP '+r.status+' '+text.slice(0,300)) : ('HTTP '+r.status);
+      throw new Error(msg);
+    }
+    if (!text) return {}; // tolerate empty JSON body
+    try { return JSON.parse(text); }
+    catch(e){
+      // Some endpoints may legitimately return empty or plain text; surface a compact message
+      logCap('non-JSON response from '+url+': '+text.slice(0,200));
+      // Best effort: return a minimal object so callers can proceed without crashing
+      return { ok: true, raw: text };
+    }
+  }
+
+  async function jsonMaybe(r){
+    // Safe parser for places still using fetch(...).then(jsonMaybe)
+    const text = await r.text();
+    if (!r.ok) throw new Error('HTTP '+r.status+ (text?(' '+text.slice(0,200)) : ''));
+    if (!text) return {};
+    try { return JSON.parse(text); } catch { return { ok:true, raw: text }; }
+  }
   function fmtTime(t){ if(!t) return '-'; try{ return new Date(t).toLocaleTimeString(); }catch{return '-';} }
 
   window.onerror=(m,src,l,c,e)=>logCap('ERROR '+m+' @'+l+':'+c);
@@ -138,7 +165,7 @@
     logCap('POST /api/run start');
     fetch('/api/run',{ method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ urlsText: urls.join('\n'), options }) })
-    .then(r=>r.json()).then(j=>{
+    .then(jsonMaybe).then(j=>{
       logCap('Run response '+JSON.stringify(j));
       if(j.runId){ setTimeout(loadRuns,900); }
       else { id('btnStart').disabled=false; id('btnStop').disabled=true; }
@@ -166,7 +193,7 @@
     logCap('POST /api/run (crawlFirst)');
     fetch('/api/run',{ method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ urlsText:'', options, crawlFirst:true, crawlOptions:{...crawlOptions,startUrlsText:startUrls} }) })
-    .then(r=>r.json()).then(j=>{
+    .then(jsonMaybe).then(j=>{
       logCap('Run response '+JSON.stringify(j));
       if(j.runId){ setTimeout(loadRuns,1200); }
       else { id('btnStart').disabled=false; id('btnStop').disabled=true; }
@@ -178,13 +205,22 @@
 
   // ---------- Stop Run / Refresh
   id('btnStop').onclick=()=>{
-    fetch('/api/stop-run',{method:'POST'}).then(r=>r.json()).then(j=>{
+    fetch('/api/stop-run',{method:'POST'}).then(jsonMaybe).then(j=>{
       logCap('Stop run '+JSON.stringify(j));
       id('btnStop').disabled=true; id('btnStart').disabled=false;
       setTimeout(loadRuns,800);
     }).catch(e=>logCap('Stop error '+e.message));
   };
   id('btnForceRefresh').onclick=()=>loadRuns();
+  // ---------- Install Playwright Browsers
+  const ib = document.getElementById('btnInstallBrowsers');
+  if(ib){
+    ib.onclick=()=>{
+      fetch('/api/playwright/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({browsers:['chromium']})})
+        .then(jsonMaybe).then(j=>logCap('Playwright install: '+JSON.stringify(j)))
+        .catch(e=>logCap('Playwright install error '+e.message));
+    };
+  }
 
   // ---------- Hosting
   id('btnHost').onclick=()=>{
@@ -192,14 +228,27 @@
     const port=+id('hostPort').value||8081;
     fetch('/api/host-run',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({runId:selectedRun,port})})
-      .then(r=>r.json()).then(j=>{
+      .then(jsonMaybe).then(j=>{
         if(!j.ok){ logHost('Host error '+JSON.stringify(j)); return; }
-        logHost('Hosting '+j.runId+' @ '+j.url); id('btnStopHost').disabled=false;
+        logHost('Hosting '+j.runId+' @ '+j.url);
+        id('btnStopHost').disabled=false;
+        const openBtn = id('btnOpenHost');
+        if(openBtn){ openBtn.disabled=false; openBtn.dataset.url = j.url; }
+        try { if(j.url) window.open(j.url, '_blank', 'noopener'); } catch {}
       }).catch(e=>logHost('Host exception '+e.message));
   };
+  const openBtn = id('btnOpenHost');
+  if(openBtn){
+    openBtn.onclick = ()=>{
+      const url = openBtn.dataset.url || '';
+      if(!url){ logHost('No hosted URL available'); return; }
+      try { window.open(url, '_blank', 'noopener'); } catch(e){ logHost('Open error '+e.message); }
+    };
+  }
   id('btnStopHost').onclick=()=>{
-    fetch('/api/host-stop',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({runId:selectedRun})}).then(r=>r.json()).then(j=>{
+    const port=+id('hostPort').value||8081;
+    fetch('/api/stop-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port})})
+    .then(jsonMaybe).then(j=>{
       logHost('Stop host '+JSON.stringify(j)); id('btnStopHost').disabled=true;
     }).catch(e=>logHost('Stop host error '+e.message));
   };
@@ -245,7 +294,7 @@
     };
     logHP('POST prepare '+JSON.stringify(payload));
     fetch('/api/hosting/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
-      .then(r=>r.json()).then(j=>{ logHP('Prepare response '+JSON.stringify(j)); refreshJobs(); })
+      .then(jsonMaybe).then(j=>{ logHP('Prepare response '+JSON.stringify(j)); refreshJobs(); })
       .catch(e=>logHP('Prepare error '+e.message));
   };
   id('btnRefreshJobs').onclick=refreshJobs;
@@ -269,5 +318,16 @@
   });
 
   // ---------- Init
+  // Load help settings for tooltips
+  fetch('/api/settings').then(jsonMaybe).then(j=>{
+    try{
+      const help=j.help||{};
+      Object.keys(help).forEach(idKey=>{
+        const el=document.getElementById(idKey);
+        if(el && !el.title) el.title = help[idKey];
+      });
+    }catch(e){ logCap('help load err '+e.message); }
+  }).catch(e=>logCap('settings err '+e.message));
+
   loadRuns(); loadPlatforms(); refreshJobs(); logCap('Init complete (advanced)');
 })();

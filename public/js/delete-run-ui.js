@@ -13,8 +13,7 @@
   async function fetchRuns() {
     try {
       const res = await fetch(API.runs);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const js = await res.json();
+      const js = await window.safeParseJson(res);
       return js && Array.isArray(js.runs) ? js.runs : [];
     } catch (e) {
       console.error('[delete-run-ui] runs load failed', e);
@@ -75,7 +74,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ runId })
         });
-        const js = await res.json().catch(() => ({}));
+        const js = await window.safeParseJson(res);
         if (!res.ok || !js.ok) {
           status.textContent = js.error ? `Failed: ${js.error}` : `HTTP ${res.status}`;
           return;
@@ -172,7 +171,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ runId })
         });
-        const js = await res.json().catch(() => ({}));
+        const js = await window.safeParseJson(res);
         if (!res.ok || !js.ok) {
           status.textContent = js.error ? `Failed: ${js.error}` : `HTTP ${res.status}`;
           return;

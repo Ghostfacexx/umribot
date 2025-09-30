@@ -93,15 +93,18 @@ const STRIP_ALL_QUERIES = flag('STRIP_ALL_QUERIES', false);
 const WAIT_AFTER_LOAD   = parseInt(process.env.WAIT_AFTER_LOAD||'500',10);
 const NAV_TIMEOUT       = parseInt(process.env.NAV_TIMEOUT||'15000',10);
 const PAGE_TIMEOUT      = parseInt(process.env.PAGE_TIMEOUT||'45000',10); // (placeholder)
-const USER_AGENT = process.env.USER_AGENT ||
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-const PAGE_WAIT_UNTIL = (process.env.PAGE_WAIT_UNTIL || 'domcontentloaded');
-
 // Engine/headless for parity with archiver
 const ENGINE = (process.env.ENGINE || 'chromium').toLowerCase();
 const HEADLESS = flag('HEADLESS', true);
 const DISABLE_HTTP2 = flag('DISABLE_HTTP2', false);
 const STEALTH = flag('STEALTH', true);
+const PAGE_WAIT_UNTIL = (process.env.PAGE_WAIT_UNTIL || 'domcontentloaded');
+// Default UA tuned by engine unless overridden
+const USER_AGENT = process.env.USER_AGENT || (
+  ENGINE==='webkit'
+    ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+    : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+);
 
 const PROXIES_FILE  = process.env.PROXIES_FILE || '';
 const STABLE_SESSION= flag('STABLE_SESSION', true);
@@ -270,7 +273,22 @@ async function crawl(){
     try {
       page=await context.newPage();
       page.setDefaultNavigationTimeout(NAV_TIMEOUT);
-  await page.goto(item.url,{ waitUntil: PAGE_WAIT_UNTIL });
+      // Primary navigation with configured lifecycle
+      let navigated=false;
+      try {
+        await page.goto(item.url,{ waitUntil: PAGE_WAIT_UNTIL, timeout: NAV_TIMEOUT });
+        navigated=true;
+      } catch (e) {
+        console.log(`[CRAWL_WARN] primary goto failed (${PAGE_WAIT_UNTIL}) ${e.message}`);
+        // Fallback: try fast commit to bypass long blocking (e.g., bot checks), then best-effort DOM wait
+        try {
+          await page.goto(item.url, { waitUntil: 'commit', timeout: Math.min(15000, NAV_TIMEOUT) });
+          navigated=true;
+          try { await page.waitForLoadState('domcontentloaded', { timeout: Math.min(15000, NAV_TIMEOUT) }); } catch {}
+        } catch (e2) {
+          throw e; // preserve the original error
+        }
+      }
       if (WAIT_AFTER_LOAD>0) await page.waitForTimeout(WAIT_AFTER_LOAD);
       // Mark visited
       visitedOrder.push(item.url);
@@ -278,7 +296,15 @@ async function crawl(){
 
       // Extract links only if we can still expand
       if (pagesCrawled < MAX_PAGES && item.depth < MAX_DEPTH){
-        const hrefs=await page.$$eval('a[href]', as=>as.map(a=>a.getAttribute('href')));
+        let hrefs=[];
+        try {
+          hrefs=await page.$$eval('a[href]', as=>as.map(a=>a.getAttribute('href')));
+          if (!hrefs || hrefs.length===0) {
+            // wait briefly for dynamic anchors to appear
+            try { await page.waitForSelector('a[href]', { timeout: Math.min(8000, NAV_TIMEOUT) }); } catch {}
+            hrefs=await page.$$eval('a[href]', as=>as.map(a=>a.getAttribute('href')));
+          }
+        } catch {}
         for(const raw of hrefs){
           if(!raw) continue;
           let resolved;

@@ -31,6 +31,7 @@ const CRAWLER = path.join(__dirname,'crawler.cjs');
 const HOST_SERVER = path.join(__dirname,'server.cjs');
 const HOSTING_OUT_BASE = path.join(__dirname,'hosting_packages');
 const OUT_BASE = path.join(__dirname,'out'); // Exposed at /download
+const SMART_MAP = path.join(__dirname,'tools','smart-map.cjs');
 
 fs.mkdirSync(BASE,{recursive:true});
 fs.mkdirSync(HOSTING_OUT_BASE,{recursive:true});
@@ -799,7 +800,7 @@ app.post('/api/run',(req,res)=>{
 
   runs.push({ id, dir, seedsFile:null, startedAt:Date.now(), stats:null, stopped:false, pending:true });
 
-  if(!crawlFirst && autoDepth>0){
+  if(!crawlFirst && autoDepth>0 && !options.planFirst){
     currentJob={ id, dir, startedAt:Date.now(), phase:'auto-expand', totalUrls:directURLs.length };
     startingJob = false; // gate released
     push(`[JOB_START] id=${id} autoExpandDepth=${autoDepth} seeds=${directURLs.length}`);
@@ -909,12 +910,63 @@ app.post('/api/run',(req,res)=>{
     return res.json({ ok:true, runId:id, dir, crawling:true });
   }
 
-  if(!directURLs.length){
+  if(!directURLs.length && !options.planFirst){
     startingJob = false;
     return res.status(400).json({error:'no direct URLs'});
   }
-  const seedsFile=path.join(dir,'seeds.txt');
-  fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8');
+  let seedsFile = path.join(dir,'seeds.txt');
+  // Plan-first: generate explicit seeds via smart-map
+  if(options.planFirst){
+    try{
+      // Prepare env for mapper
+      const env = { ...process.env };
+      const startUrls = directURLs.length ? directURLs : ((crawlOptions.startUrlsText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean));
+      env.START_URLS = (startUrls||[]).join('\n');
+      env.SAME_HOST_ONLY = (options.autoExpandSameHostOnly===false ? 'false' : 'true');
+      env.INCLUDE_SUBDOMAINS = (options.autoExpandSubdomains===false ? 'false' : 'true');
+      if(options.autoExpandAllowRegex) env.ALLOW_REGEX = options.autoExpandAllowRegex;
+      if(options.autoExpandDenyRegex) env.DENY_REGEX = options.autoExpandDenyRegex;
+      // Defaults suitable for e-com
+      env.MAX_CATEGORIES = String(80);
+      env.MAX_CATEGORY_PAGES = String(5);
+      env.MAX_PRODUCTS_PER_CATEGORY = String(300);
+      // Run mapper synchronously
+      push(`[PLAN_START] id=${id} urls=${(env.START_URLS||'').split(/\n/).length}`);
+      const out = require('child_process').spawnSync(process.execPath, [SMART_MAP, dir], { env, encoding:'utf8' });
+      if(out.status !== 0){
+        push('[PLAN_ERR] '+(out.stderr||out.stdout||'mapper failed'));
+        // Fallback: if directURLs exist, write them; otherwise abort
+        if(directURLs.length){ fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8'); }
+        else {
+          startingJob = false; currentJob=null; currentChildProc=null;
+          return res.status(500).json({ error:'Plan-first mapper failed and no direct URLs fallback' });
+        }
+      } else {
+        push('[PLAN_DONE] '+(out.stdout||'').trim().split(/\r?\n/).slice(-1)[0]);
+        const planned = path.join(dir,'_plan','seeds.txt');
+        if(fs.existsSync(planned)){
+          seedsFile = planned;
+        } else {
+          // Fallback to direct
+          if(directURLs.length){ fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8'); }
+          else {
+            startingJob = false; currentJob=null; currentChildProc=null;
+            return res.status(500).json({ error:'smart-map produced no seeds' });
+          }
+        }
+      }
+    }catch(e){
+      push('[PLAN_EXC] '+e.message);
+      if(directURLs.length){ fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8'); }
+      else {
+        startingJob = false; currentJob=null; currentChildProc=null;
+        return res.status(500).json({ error:'Plan-first failed: '+e.message });
+      }
+    }
+  } else {
+    // No plan-first: write provided URLs directly
+    fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8');
+  }
   const rec=findRun(id);
   if(rec){ rec.seedsFile=seedsFile; }
   currentJob={ id, dir, startedAt:Date.now(), phase:'archive', totalUrls:directURLs.length };

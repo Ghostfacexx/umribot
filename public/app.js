@@ -168,6 +168,8 @@
     opts.flattenRoot         = asBool(id('advFlattenRoot'));
   // Crawl-only/auto-expand helper flag for tricky HTTP/2 sites
   opts.disableHttp2        = asBool(id('advDisableHttp2'));
+    // Let archiver perform internal discovery when crawler struggles
+    opts.discoverInArchiver = asBool(id('advDiscoverInArchiver'));
 
     const internalRx = asStr(id('advInternalRegex')); if(internalRx) opts.internalRewriteRegex = internalRx;
     const domainFilter = asStr(id('advDomainFilter')); if(domainFilter) opts.domainFilter = domainFilter;

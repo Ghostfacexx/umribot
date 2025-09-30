@@ -51,6 +51,23 @@ let runs=[];
 const hosts = new Map();
 let installingBrowsers = false;
 
+// Infer a public URL for a given port depending on environment (Codespaces or local)
+function inferPublicUrl(port){
+  try{
+    const p = String(port);
+    if(process.env.CODESPACES === 'true'){
+      const name = process.env.CODESPACE_NAME || '';
+      const domain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev';
+      if(name) return `https://${name}-${p}.${domain}/`;
+    }
+    const host = process.env.PUBLIC_HOST || process.env.HOST || 'localhost';
+    const proto = process.env.PUBLIC_PROTOCOL || 'http';
+    return `${proto}://${host}:${p}/`;
+  }catch{
+    return `http://localhost:${port}/`;
+  }
+}
+
 /* ---------- Playwright Browser Installer ---------- */
 app.post('/api/playwright/install', async (req,res)=>{
   try{
@@ -595,10 +612,10 @@ app.post('/api/crawl',(req,res)=>{
   push(`[CRAWL_START] id=${id} seeds=${startUrls.length}`);
   const child=spawn('node',[CRAWLER],{ env });
   currentChildProc=child;
-  
-  attachChildProcessLoggers(child, 'C');
-  
-  child.on('exit', createJobExitHandler(id, 'CRAWL', (code) => {
+  child.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C] '+l)));
+  child.stderr.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C:ERR] '+l)));
+  child.on('exit',code=>{
+    push(`[CRAWL_EXIT] id=${id} code=${code}`);
     let seedsFile = path.join(dir,'_crawl','urls.txt');
     let stats=null;
     if(fs.existsSync(seedsFile)){
@@ -613,7 +630,7 @@ app.post('/api/crawl',(req,res)=>{
     }
     currentJob=null; currentChildProc=null;
     startingJob=false;
-  }));
+  });
   res.json({ ok:true, crawlId:id, dir });
 });
 
@@ -838,10 +855,10 @@ app.post('/api/host-run',(req,res)=>{
   child.on('exit', createJobExitHandler(p, 'HOST', (code) => {
     hosts.delete(p);
   }));
-  
-  hosts.set(p, { child, runId: run.id, startedAt: Date.now(), root: run.dir });
-  push(`[HOST_START] pid=${child.pid} port=${p} root=${run.dir} runId=${run.id}`);
-  res.json({ ok:true, url:`http://YOUR_SERVER_IP:${p}/`, runId:run.id, pid:child.pid, port:p });
+  const publicUrl = inferPublicUrl(p) + (startPath || '').replace(/^\//,'');
+  hosts.set(p, { child, runId: run.id, startedAt: Date.now(), root: run.dir, url: publicUrl });
+  push(`[HOST_START] pid=${child.pid} port=${p} public=${publicUrl} root=${run.dir} runId=${run.id}`);
+  res.json({ ok:true, url: publicUrl, runId:run.id, pid:child.pid, port:p });
 });
 app.post('/api/host-run/auto',(req,res)=>{
   const { runId, startPath='' } = req.body||{};
@@ -868,7 +885,7 @@ app.post('/api/host-stop',(req,res)=>{
 });
 app.get('/api/hosts',(req,res)=>{
   const list = [...hosts.entries()].map(([port, h]) => ({
-    port, runId: h.runId, root: h.root, startedAt: h.startedAt
+    port, runId: h.runId, root: h.root, startedAt: h.startedAt, url: h.url || inferPublicUrl(port)
   }));
   res.json({ hosts: list });
 });

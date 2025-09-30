@@ -757,7 +757,9 @@ app.post('/api/run',(req,res)=>{
         const rec=findRun(id);
         if(rec){ rec.pending=false; rec.finishedAt=Date.now(); rec.stats=null; }
         startingJob = false;
-        currentJob=null; currentChildProc=null;
+        try{ if(currentChildProc){ currentChildProc.kill('SIGTERM'); } }catch{}
+        currentChildProc=null;
+        currentJob=null;
         return;
       }
       const rec=findRun(id);
@@ -793,7 +795,9 @@ app.post('/api/run',(req,res)=>{
         const rec=findRun(id);
         if(rec){ rec.pending=false; rec.finishedAt=Date.now(); }
         startingJob = false;
-        currentJob=null; currentChildProc=null;
+        try{ if(currentChildProc){ currentChildProc.kill('SIGTERM'); } }catch{}
+        currentChildProc=null;
+        currentJob=null;
         return;
       }
       const rec=findRun(id);

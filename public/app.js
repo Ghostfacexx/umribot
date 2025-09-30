@@ -21,6 +21,14 @@
   function logLive(m){ append(liveLog,m); }
   function logHost(m){ append(hostLog,m); }
   function logHP(m){ append(hpLog,m); }
+  async function syncButtons(){
+    try{
+      const j = await fetchJSON('/api/status');
+      const running = !!(j && j.running);
+      id('btnStart').disabled = running;
+      id('btnStop').disabled = !running;
+    }catch(e){ /* ignore */ }
+  }
   async function fetchJSON(url, opts){
     // Robust JSON fetch: tolerates empty bodies and logs non-JSON responses gracefully
     logCap('fetch '+url);
@@ -82,7 +90,10 @@
     const es=new EventSource('/api/logs');
     es.onmessage=e=>{
       logLive(e.data);
-      if(/JOB_START|JOB_EXIT|CRAWL_EXIT|AUTO_EXPAND_EXIT/.test(e.data)) setTimeout(loadRuns,600);
+      if(/JOB_START|JOB_EXIT|CRAWL_EXIT|AUTO_EXPAND_EXIT|JOB_ABORT/.test(e.data)){
+        setTimeout(loadRuns,600);
+        setTimeout(syncButtons,650);
+      }
     };
   }catch(e){ logLive('SSE error '+e.message); }
 
@@ -195,10 +206,10 @@
     .then(jsonMaybe).then(j=>{
       logCap('Run response '+JSON.stringify(j));
       if(j.runId){ setTimeout(loadRuns,900); }
-      else { id('btnStart').disabled=false; id('btnStop').disabled=true; }
+      else { setTimeout(syncButtons,300); }
     }).catch(e=>{
       logCap('Run start error '+e.message);
-      id('btnStart').disabled=false; id('btnStop').disabled=true;
+      setTimeout(syncButtons,300);
     });
   };
 
@@ -235,11 +246,17 @@
 
   // ---------- Stop Run / Refresh
   id('btnStop').onclick=()=>{
-    fetch('/api/stop-run',{method:'POST'}).then(jsonMaybe).then(j=>{
-      logCap('Stop run '+JSON.stringify(j));
-      id('btnStop').disabled=true; id('btnStart').disabled=false;
-      setTimeout(loadRuns,800);
-    }).catch(e=>logCap('Stop error '+e.message));
+    fetch('/api/stop-run',{method:'POST'})
+      .then(jsonMaybe)
+      .then(j=>{
+        logCap('Stop run '+JSON.stringify(j));
+      })
+      .catch(e=>{
+        logCap('Stop error '+e.message);
+      })
+      .finally(()=>{
+        id('btnStop').disabled=true; id('btnStart').disabled=false; setTimeout(syncButtons,500); setTimeout(loadRuns,800);
+      });
   };
   id('btnForceRefresh').onclick=()=>loadRuns();
   // ---------- Install Playwright Browsers
@@ -361,5 +378,5 @@
   }).catch(e=>logCap('settings err '+e.message));
 
   renderRecentSeeds();
-  loadRuns(); loadPlatforms(); refreshJobs(); logCap('Init complete (advanced)');
+  loadRuns(); loadPlatforms(); refreshJobs(); syncButtons(); logCap('Init complete (advanced)');
 })();

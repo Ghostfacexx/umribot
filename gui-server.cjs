@@ -120,6 +120,7 @@ const UI_SETTINGS_HELP = {
   advEngine: 'Browser engine to use for capture (chromium recommended for speed).',
   advConcurrency: 'Concurrent pages to process. Increase carefully to avoid rate limits.',
   advHeadless: 'Run browser in headless mode. Disable for debugging or visual checks.',
+  advStealth: 'Mask common automation fingerprints (navigator.webdriver, languages, plugins, WebGL). Enabled by default.',
   advWaitUntil: 'waitUntil for page navigation lifecycle (e.g., domcontentloaded, load).',
   advWaitExtra: 'Extra wait (ms) after waitUntil to stabilize dynamic pages.',
   advQuietMillis: 'Quiet period (ms) with no network to consider the page idle.',
@@ -137,6 +138,8 @@ const UI_SETTINGS_HELP = {
   advFlattenRoot: 'Flatten root index to index.html (avoid nested index).',
   advInternalRegex: 'Regex to determine internal hosts/paths for rewriting.',
   advDomainFilter: 'Optional domain filter list to limit capture scope.',
+    advStealth: 'Enable stealth tweaks to better resemble a real browser.',
+    advProxy: 'HTTP proxy to route requests (supports user:pass).',
   advClickSelectors: 'CSS selectors to click after load (one per line).',
   advRemoveSelectors: 'CSS selectors to remove from pages (one per line).',
   advSkipDownload: 'Skip downloading assets matching these patterns (one per line).',
@@ -179,12 +182,28 @@ function getCrawlerDefaults(){
     navTimeout: 15000,
     pageTimeout: 45000,
     engine: 'chromium',
-    headless: true
+    headless: true,
+    stealth: true,
+    proxy: ''
   };
 }
 
 function buildCrawlEnv(options, dir, startUrls) {
   const o = options || {};
+  // Optional single proxy string -> ephemeral PROXIES_FILE JSON
+  let proxiesFile='';
+  if(o.proxy){
+    try{
+      const pStr=String(o.proxy||'').trim();
+      if(pStr){
+        const parsed = parseProxyToObject(pStr);
+        const jsonPath = path.join(dir,'_crawl','proxies.json');
+        fs.mkdirSync(path.dirname(jsonPath),{recursive:true});
+        fs.writeFileSync(jsonPath, JSON.stringify([parsed],null,2));
+        proxiesFile = jsonPath;
+      }
+    }catch(e){ push('[WARN] invalid proxy '+e.message); }
+  }
   return {
     ...process.env,
     START_URLS: (startUrls||[]).join('\n'),
@@ -202,7 +221,8 @@ function buildCrawlEnv(options, dir, startUrls) {
     HEADLESS: (o.headless===false?'false':'true'),
     DISABLE_HTTP2: (o.disableHttp2?'true':'false'),
     PAGE_WAIT_UNTIL: o.pageWaitUntil || 'domcontentloaded',
-    STEALTH: (o.stealth===false?'false':'true')
+    STEALTH: (o.stealth===false?'false':'true'),
+    PROXIES_FILE: proxiesFile
   };
 }
 
@@ -211,6 +231,8 @@ function getArchiverDefaults(){
     engine: 'chromium',
     concurrency: 2,
     headless: true,
+    stealth: true,
+    proxy: '',
     includeCrossOrigin: false,
     waitExtra: 700,
     navTimeout: 20000,
@@ -263,6 +285,7 @@ function buildArchiverEnv(options){
     ENGINE: o.engine || d.engine,
     CONCURRENCY: String(o.concurrency ?? d.concurrency),
     HEADLESS: (o.headless===false?'false':'true'),
+    STEALTH: (o.stealth===false?'false':'true'),
     INCLUDE_CROSS_ORIGIN: (o.includeCrossOrigin?'true':'false'),
     WAIT_EXTRA: String(o.waitExtra ?? d.waitExtra),
     NAV_TIMEOUT_MS: String(o.navTimeout ?? d.navTimeout),
@@ -303,11 +326,31 @@ function buildArchiverEnv(options){
     TARGET_PLATFORM: (o.targetPlatform || d.targetPlatform),
     // network hardening
     DISABLE_HTTP2: (o.disableHttp2 ? 'true' : 'false'),
+    // proxy (single string turned into file in run dir by caller of /api/run)
+    PROXIES_FILE: (options && options.__proxiesFile) || process.env.PROXIES_FILE || '',
     // optional internal discovery mode (replace external crawler)
     DISCOVER_IN_ARCHIVER: (o.discoverInArchiver ? 'true' : 'false'),
     DISCOVER_MAX_PAGES: String(o.autoExpandMaxPages ?? 50),
     DISCOVER_MAX_DEPTH: String(o.autoExpandDepth ?? 1)
   };
+}
+
+// Parse proxy string host:port[:user:pass] or http(s)://user:pass@host:port -> {server,username,password}
+function parseProxyToObject(input){
+  const s=String(input||'').trim(); if(!s) throw new Error('empty proxy');
+  let urlStr=s;
+  if(!/^https?:\/\//i.test(urlStr)){
+    // support user:pass@host:port and host:port or host:port:user:pass
+    if(/^[^@]+@/.test(urlStr)) urlStr='http://'+urlStr; // user:pass@host:port
+    else if(/^[^:]+:[0-9]+:[^:]+:.+/.test(urlStr)){
+      const [host,port,user,pass]=urlStr.split(':');
+      return { server:`http://${host}:${port}`, username:user, password:pass };
+    } else {
+      urlStr='http://'+urlStr; // host:port
+    }
+  }
+  const u=new URL(urlStr);
+  return { server:`${u.protocol}//${u.hostname}:${u.port}`, username:decodeURIComponent(u.username||''), password:decodeURIComponent(u.password||'') };
 }
 
 // API: settings help and defaults for UI tooltips/hints
@@ -647,8 +690,17 @@ app.post('/api/crawl',(req,res)=>{
 function launchArchiver(id, dir, seedsFile, options, startedAt){
   // Ensure job state exists (prevents null crash)
   ensureCurrentJob(id, dir, startedAt, 'archive');
-
   const env = buildArchiverEnv(options);
+  // If a single proxy string is provided, write it to a proxies.json in run dir and pass via env
+  try{
+    if(options && options.proxy){
+      const parsed = parseProxyToObject(options.proxy);
+      const jsonPath = path.join(dir, '_crawl', 'proxies.json');
+      fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
+      fs.writeFileSync(jsonPath, JSON.stringify([parsed], null, 2));
+      env.PROXIES_FILE = jsonPath;
+    }
+  }catch(e){ push('[WARN] archiver proxy parse failed '+e.message); }
   push(`[JOB_PHASE] archive start id=${id} target=${env.TARGET_PLATFORM}`);
   const child=spawn('node',[ARCHIVER,seedsFile,dir],{ env });
   currentChildProc=child;
@@ -750,6 +802,7 @@ app.post('/api/run',(req,res)=>{
         pageTimeout: (crawlOptions.pageTimeout ?? options.pageTimeout ?? getCrawlerDefaults().pageTimeout),
         // Network/protocol
         disableHttp2: (options.disableHttp2 || crawlOptions.disableHttp2),
+        proxy: options.proxy,
         // Pass key archiver options to crawler for parity
         pageWaitUntil: (options.pageWaitUntil || 'domcontentloaded'),
         stealth: (options.stealth !== false),
@@ -805,6 +858,7 @@ app.post('/api/run',(req,res)=>{
       disableHttp2: (crawlOptions.disableHttp2 ?? options.disableHttp2 ?? false),
       pageWaitUntil: (crawlOptions.pageWaitUntil ?? options.pageWaitUntil ?? 'domcontentloaded'),
       stealth: (typeof crawlOptions.stealth === 'boolean' ? crawlOptions.stealth : (options.stealth !== false)),
+      proxy: options.proxy,
       engine: (crawlOptions.engine || options.engine || getCrawlerDefaults().engine),
       headless: (typeof crawlOptions.headless === 'boolean' ? crawlOptions.headless : (typeof options.headless === 'boolean' ? options.headless : getCrawlerDefaults().headless))
     };

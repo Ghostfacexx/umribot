@@ -99,6 +99,17 @@ summary{cursor:pointer;font-weight:600}
 
       <div class="row">
         <div class="col">
+          <label class="opt" title="Mask common automation fingerprints (navigator.webdriver, languages, plugins, WebGL)"><input type="checkbox" id="advStealth" checked>stealth</label>
+        </div>
+        <div class="col">
+          <label>Proxy
+            <input id="advProxy" placeholder="host:port[:user:pass] or http://user:pass@host:port">
+          </label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
           <label>Page waitUntil
             <select id="advWaitUntil">
               <option>domcontentloaded</option>

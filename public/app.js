@@ -148,6 +148,8 @@
     opts.engine = asStr(id('advEngine')) || 'chromium';
     opts.concurrency = asNum(id('advConcurrency'),2);
     opts.headless = (id('advHeadless')?.value!=='false');
+  opts.stealth = !!(document.getElementById('advStealth')?.checked);
+  const proxyStr = asStr(id('advProxy')); if(proxyStr) opts.proxy = proxyStr;
 
     opts.pageWaitUntil = asStr(id('advWaitUntil')) || 'domcontentloaded';
     opts.waitExtra     = asNum(id('advWaitExtra'),700);

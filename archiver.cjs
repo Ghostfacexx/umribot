@@ -317,6 +317,25 @@ async function applyStealth(context){
   } catch {}
 }
 
+/* ------------ Humanization (light) ------------ */
+function rint(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+async function humanizePage(page, profile){
+  try{
+    const w = (profile?.viewport?.width)||1366, h=(profile?.viewport?.height)||900;
+    const steps = rint(3,6);
+    await page.mouse.move(rint(10,w-10), rint(10,h-10), { steps:rint(8,18) });
+    for(let i=0;i<steps;i++){
+      await page.waitForTimeout(rint(120,320));
+      await page.mouse.move(rint(10,w-10), rint(10,h-10), { steps:rint(5,12) });
+      if(Math.random()<0.4){
+        await page.mouse.wheel({ deltaY: rint(150, 600) });
+      }
+    }
+    if(Math.random()<0.25){ try{ await page.keyboard.press('PageDown'); }catch{} }
+    if(Math.random()<0.15){ try{ await page.mouse.click(rint(40,w-40), rint(80,h-80)); }catch{} }
+  }catch{}
+}
+
 /* ------------ Same-site checker ------------ */
 let isSameSite = (_)=>true;
 
@@ -873,7 +892,10 @@ async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
     }
     record.mainStatus=resp?.status()||null;
     record.finalURL=resp?.url()||page.url();
-    try{ await page.waitForSelector('body',{timeout:10000}); }catch{ record.reasons.push('noBody'); }
+  try{ await page.waitForSelector('body',{timeout:10000}); }catch{ record.reasons.push('noBody'); }
+
+  // Human-like interaction to help pass simple bot gates
+  try{ await humanizePage(page, profile); }catch{}
 
     for(const sel of CLICK_SELECTORS){
       if(!sel) continue;

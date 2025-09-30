@@ -223,11 +223,36 @@ async function applyStealth(context){
   } catch {}
 }
 
+function rint(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+async function humanizePage(page){
+  try{
+    const w=1366,h=900;
+    const steps=rint(2,5);
+    await page.mouse.move(rint(10,w-10), rint(10,h-10), { steps:rint(8,16) });
+    for(let i=0;i<steps;i++){
+      await page.waitForTimeout(rint(100,260));
+      await page.mouse.move(rint(10,w-10), rint(10,h-10), { steps:rint(5,10) });
+      if(Math.random()<0.4){ await page.mouse.wheel({deltaY:rint(120,480)}); }
+    }
+  }catch{}
+}
+
 async function fetchHtmlRaw(u, headers={}){
   return new Promise((resolve)=>{
     try{
       const url = new URL(u);
       const lib = url.protocol === 'https:' ? https : http;
+      // Optional proxy
+      let agent;
+      try{
+        const p = nextProxy(0);
+        if(p){
+          const auth = (p.username?`${encodeURIComponent(p.username)}:${encodeURIComponent(p.password||'')}@`:'');
+          const server = p.server.replace(/^https?:\/\//,'');
+          const proxyUrl = `http://${auth}${server}`;
+          agent = new HttpsProxyAgent(proxyUrl);
+        }
+      }catch{}
       const req = lib.request({
         hostname: url.hostname,
         port: url.port || (url.protocol==='https:'?443:80),
@@ -240,6 +265,7 @@ async function fetchHtmlRaw(u, headers={}){
           'Cache-Control': 'no-cache',
           ...headers
         },
+        agent,
         timeout: Math.min(15000, NAV_TIMEOUT)
       },(res)=>{
         if((res.statusCode||0) >= 300 && (res.statusCode||0) < 400 && res.headers.location){
@@ -372,7 +398,8 @@ async function crawl(){
           }
         }
       }
-      if (WAIT_AFTER_LOAD>0) await page.waitForTimeout(WAIT_AFTER_LOAD);
+  if (WAIT_AFTER_LOAD>0) await page.waitForTimeout(WAIT_AFTER_LOAD);
+  try{ await humanizePage(page); }catch{}
       // Mark visited
       visitedOrder.push(item.url);
       pagesCrawled++;

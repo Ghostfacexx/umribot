@@ -740,13 +740,18 @@ app.post('/api/run',(req,res)=>{
         includeSubdomains: options.autoExpandSubdomains,
         allowRegex: options.autoExpandAllowRegex,
         denyRegex: options.autoExpandDenyRegex,
-        waitAfterLoad: crawlOptions.waitAfterLoad,
-        navTimeout: crawlOptions.navTimeout,
-        pageTimeout: crawlOptions.pageTimeout,
-          disableHttp2: (options.disableHttp2 || crawlOptions.disableHttp2),
-          // pass key archiver options to crawler for parity
-          pageWaitUntil: options.pageWaitUntil,
-          stealth: (options.stealth !== false)
+        // Prefer crawlOptions overrides, otherwise fall back to capture options where sensible
+        waitAfterLoad: (crawlOptions.waitAfterLoad ?? options.waitExtra ?? getCrawlerDefaults().waitAfterLoad),
+        navTimeout: (crawlOptions.navTimeout ?? options.navTimeout ?? getCrawlerDefaults().navTimeout),
+        pageTimeout: (crawlOptions.pageTimeout ?? options.pageTimeout ?? getCrawlerDefaults().pageTimeout),
+        // Network/protocol
+        disableHttp2: (options.disableHttp2 || crawlOptions.disableHttp2),
+        // Pass key archiver options to crawler for parity
+        pageWaitUntil: (options.pageWaitUntil || 'domcontentloaded'),
+        stealth: (options.stealth !== false),
+        // Keep engine/headless in sync with capture settings
+        engine: (options.engine || getCrawlerDefaults().engine),
+        headless: (typeof options.headless === 'boolean' ? options.headless : getCrawlerDefaults().headless)
       }, dir, directURLs),
       DISABLE_AUTO_ALLOW: 'true'
     };
@@ -787,7 +792,19 @@ app.post('/api/run',(req,res)=>{
     currentJob={ id, dir, startedAt:Date.now(), phase:'crawl', totalUrls:0 };
     startingJob = false;
     push(`[JOB_START] id=${id} crawlFirst=true startSeeds=${startUrls.length}`);
-  const env = buildCrawlEnv(crawlOptions, dir, startUrls);
+    // Merge crawlOptions with sensible fallbacks from capture options
+    const mergedCrawl = {
+      ...crawlOptions,
+      waitAfterLoad: (crawlOptions.waitAfterLoad ?? options.waitExtra ?? getCrawlerDefaults().waitAfterLoad),
+      navTimeout: (crawlOptions.navTimeout ?? options.navTimeout ?? getCrawlerDefaults().navTimeout),
+      pageTimeout: (crawlOptions.pageTimeout ?? options.pageTimeout ?? getCrawlerDefaults().pageTimeout),
+      disableHttp2: (crawlOptions.disableHttp2 ?? options.disableHttp2 ?? false),
+      pageWaitUntil: (crawlOptions.pageWaitUntil ?? options.pageWaitUntil ?? 'domcontentloaded'),
+      stealth: (typeof crawlOptions.stealth === 'boolean' ? crawlOptions.stealth : (options.stealth !== false)),
+      engine: (crawlOptions.engine || options.engine || getCrawlerDefaults().engine),
+      headless: (typeof crawlOptions.headless === 'boolean' ? crawlOptions.headless : (typeof options.headless === 'boolean' ? options.headless : getCrawlerDefaults().headless))
+    };
+    const env = buildCrawlEnv(mergedCrawl, dir, startUrls);
     const crawlChild=spawn('node',[CRAWLER],{ env });
     currentChildProc=crawlChild;
     crawlChild.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C] '+l)));

@@ -4,7 +4,7 @@
  * Build an explicit, curated seed list ("plan-first") for archiving.
  * - Fetches start URL(s) and classifies links as home, category, product, info, other
  * - For category pages, follows pagination (limited) and collects product links
- * - Writes _plan/map.json and _plan/seeds.txt under the provided run directory
+ * - Writes _plan/map.json, _plan/plan.json (full lists) and _plan/seeds.txt under the provided run directory
  *
  * Env/options (via process.env):
  * - START_URLS: newline-separated start URLs (required)
@@ -15,7 +15,9 @@
  * - MAX_PRODUCTS_PER_CATEGORY: integer (default 200)
  * - ALLOW_REGEX: optional regex to include URLs
  * - DENY_REGEX: optional regex to exclude URLs
- * - PLATFORM_HINT: optional (e.g., 'opencart'|'woocommerce'|'shopify'|'auto')
+ * - PLATFORM_HINT: optional (e.g., 'opencart'|'woocommerce'|'shopify'|'magento'|'bigcommerce'|'auto')
+ * - NEXT_PAGE_SELECTOR: optional CSS selector to find next-page link (overrides heuristics)
+ * - PAGE_PARAM: optional query param name for pagination (default 'page')
  *
  * Usage:
  *   node tools/smart-map.cjs <runDir>
@@ -45,7 +47,9 @@ function parseEnv(){
     maxProductsPerCategory: parseInt(process.env.MAX_PRODUCTS_PER_CATEGORY||'200',10) || 200,
     allowRegex: allowRx ? new RegExp(allowRx,'i') : null,
     denyRegex: denyRx ? new RegExp(denyRx,'i') : null,
-    platformHint: (process.env.PLATFORM_HINT||'auto').toLowerCase()
+    platformHint: (process.env.PLATFORM_HINT||'auto').toLowerCase(),
+    nextPageSelector: (process.env.NEXT_PAGE_SELECTOR||'').trim(),
+    pageParam: (process.env.PAGE_PARAM||'page').trim() || 'page'
   };
   return cfg;
 }
@@ -114,11 +118,23 @@ function classifyHref(href, base, platform){
       if(/\/(category|product-category)\//.test(p)) return 'category';
       if(/\/(about|contact|shipping|returns|privacy|terms)(?:\/|$)/.test(p)) return 'information';
     }
-    // Shopify
+  // Shopify
     if(platform==='shopify' || platform==='auto'){
       if(/\/products\//.test(p)) return 'product';
       if(/\/(collections|collections\/all|collections\/[^/]+)(?:\/|$)/.test(p)) return 'category';
       if(/\/(pages|policies)\//.test(p)) return 'information';
+    }
+    // Magento
+    if(platform==='magento' || platform==='auto'){
+      if(/\/product\//.test(p) || /\/(catalog\/product|\?product=)/.test(p)) return 'product';
+      if(/\/(category|catalog\/category)\//.test(p)) return 'category';
+      if(/\/(customer|checkout|cart|wishlist|account)(?:\/|$)/.test(p)) return 'other';
+    }
+    // BigCommerce
+    if(platform==='bigcommerce' || platform==='auto'){
+      if(/\/products\//.test(p)) return 'product';
+      if(/\/(categories|category)\//.test(p)) return 'category';
+      if(/\/(about|contact|shipping|returns|privacy|terms)(?:\/|$)/.test(p)) return 'information';
     }
     if(u.origin===new URL(base).origin && (u.pathname==='/' || /route=common\/home/.test(qs))) return 'home';
     return 'other';
@@ -130,6 +146,8 @@ function pickPlatform(html, base){
   if(/opencart/i.test(low) || /route=product\//i.test(low)) return 'opencart';
   if(/woocommerce/i.test(low) || /wp-content\/plugins\/woocommerce/i.test(low)) return 'woocommerce';
   if(/shopify/i.test(low) || /cdn\.shopify\.com/i.test(low)) return 'shopify';
+  if(/magento/i.test(low) || /mage-init|magento-init|static\/frontend/i.test(low)) return 'magento';
+  if(/bigcommerce/i.test(low) || /cdn\.bcapp\.dev|stencil-utils/i.test(low)) return 'bigcommerce';
   // default
   return 'auto';
 }
@@ -186,15 +204,22 @@ async function buildPlan(starts, cfg){
         for(const l of links){ if(classifyHref(l, cat, platform)==='product') buckets.products.add(l); }
         // attempt to find next page via rel=next or ?page=
         const $ = cheerio.load(html);
-        let nextHref = $('a[rel="next"]').attr('href') || '';
+        let nextHref = '';
+        if(cfg.nextPageSelector){
+          nextHref = $(cfg.nextPageSelector).attr('href') || '';
+        }
         if(!nextHref){
-          const m = pageUrl.match(/([?&])page=(\d+)/);
+          nextHref = $('a[rel="next"]').attr('href') || '';
+        }
+        if(!nextHref){
+          const rx = new RegExp(`([?&])${cfg.pageParam}=(\\d+)`);
+          const m = pageUrl.match(rx);
           if(m){
             const cur = parseInt(m[2],10)||1;
-            const nu = new URL(pageUrl); nu.searchParams.set('page', String(cur+1)); nextHref = nu.toString();
+            const nu = new URL(pageUrl); nu.searchParams.set(cfg.pageParam, String(cur+1)); nextHref = nu.toString();
           } else {
             // look for explicit page number links
-            const cand = $('a[href*="page="]').map((_,a)=>$(a).attr('href')).get().filter(Boolean)[0];
+            const cand = $(`a[href*="${cfg.pageParam}="]`).map((_,a)=>$(a).attr('href')).get().filter(Boolean)[0];
             nextHref = cand || '';
           }
         }
@@ -249,6 +274,13 @@ async function main(){
       products: plan.buckets.products.size,
       seeds: plan.seeds.length
     },
+    lists: {
+      home: [...plan.buckets.home],
+      categories: [...plan.buckets.categories],
+      information: [...plan.buckets.information],
+      products: [...plan.buckets.products],
+      others: [...plan.buckets.others]
+    },
     samples: {
       home: [...plan.buckets.home].slice(0,5),
       categories: [...plan.buckets.categories].slice(0,5),
@@ -256,6 +288,7 @@ async function main(){
     }
   };
   fs.writeFileSync(path.join(outDir,'map.json'), JSON.stringify(mapJson,null,2));
+  fs.writeFileSync(path.join(outDir,'plan.json'), JSON.stringify(mapJson,null,2));
   fs.writeFileSync(path.join(outDir,'seeds.txt'), plan.seeds.join('\n')+'\n');
   console.log('[PLAN_OK]', JSON.stringify(mapJson.counts));
 }

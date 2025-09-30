@@ -556,6 +556,65 @@ app.get('/api/manifest',(req,res)=>{
   res.sendFile(mf);
 });
 
+/* ---------- Plan Builder APIs ---------- */
+// Build plan for given start URLs (without starting a run)
+app.post('/api/plan/build', (req,res)=>{
+  try{
+    const { startUrlsText='', options={} } = req.body||{};
+    const startUrls = String(startUrlsText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if(!startUrls.length) return res.status(400).json({ error:'startUrlsText required' });
+    const id = deriveRunId(startUrls[0], {
+      format: process.env.RUN_ID_FORMAT || 'domain-date-rand',
+      baseDir: BASE,
+      stripWWW: String(process.env.RUN_ID_STRIP_WWW || 'true').toLowerCase() !== 'false'
+    });
+    const dir=path.join(BASE,id);
+    fs.mkdirSync(dir,{recursive:true});
+    const env = { ...process.env };
+    env.START_URLS = startUrls.join('\n');
+    env.SAME_HOST_ONLY = (options.autoExpandSameHostOnly===false ? 'false' : 'true');
+    env.INCLUDE_SUBDOMAINS = (options.autoExpandSubdomains===false ? 'false' : 'true');
+    if(options.autoExpandAllowRegex) env.ALLOW_REGEX = options.autoExpandAllowRegex;
+    if(options.autoExpandDenyRegex) env.DENY_REGEX = options.autoExpandDenyRegex;
+    if(options.nextPageSelector) env.NEXT_PAGE_SELECTOR = options.nextPageSelector;
+    if(options.pageParam) env.PAGE_PARAM = options.pageParam;
+    const out = require('child_process').spawnSync(process.execPath, [SMART_MAP, dir], { env, encoding:'utf8' });
+    if(out.status!==0) return res.status(500).json({ error: out.stderr || out.stdout || 'plan build failed' });
+    const mapPath = path.join(dir,'_plan','map.json');
+    if(!fs.existsSync(mapPath)) return res.status(500).json({ error:'map.json missing' });
+    const map = JSON.parse(fs.readFileSync(mapPath,'utf8'));
+    return res.json({ ok:true, planDir: path.join(dir,'_plan'), runId:id, map, seedsFile: path.join(dir,'_plan','seeds.txt') });
+  } catch(e){ res.status(500).json({ error: e.message }); }
+});
+
+// Get latest plan for a run
+app.get('/api/plan/:runId', (req,res)=>{
+  try{
+    const runId = req.params.runId;
+    const run = findRun(runId) || buildRunFromDir(runId);
+    if(!run) return res.status(404).json({ error:'run not found' });
+    const mapPath = path.join(run.dir,'_plan','map.json');
+    if(!fs.existsSync(mapPath)) return res.status(404).json({ error:'plan not found' });
+    const map = JSON.parse(fs.readFileSync(mapPath,'utf8'));
+    res.json({ ok:true, map });
+  } catch(e){ res.status(500).json({ error: e.message }); }
+});
+
+// Save curated plan selections (toggle on/off and ordering) and regenerate seeds.txt
+app.post('/api/plan/:runId', (req,res)=>{
+  try{
+    const runId = req.params.runId; const { selected=[], order=[] } = req.body||{};
+    const run = findRun(runId) || buildRunFromDir(runId);
+    if(!run) return res.status(404).json({ error:'run not found' });
+    const planDir = path.join(run.dir,'_plan'); fs.mkdirSync(planDir,{recursive:true});
+    const curated = { selected, order };
+    fs.writeFileSync(path.join(planDir,'curated.json'), JSON.stringify(curated,null,2));
+    const finalList = (order.length?order:selected).filter(Boolean);
+    if(finalList.length) fs.writeFileSync(path.join(planDir,'seeds.txt'), finalList.join('\n')+'\n');
+    res.json({ ok:true, count: finalList.length });
+  } catch(e){ res.status(500).json({ error:e.message }); }
+});
+
 /* ---------- Stop Run ---------- */
 app.post('/api/stop-run',(req,res)=>{
   if(!currentJob || !currentChildProc){
@@ -776,7 +835,7 @@ app.post('/api/run',(req,res)=>{
 
   const { urlsText, options={}, crawlOptions={}, crawlFirst=false } = req.body||{};
   const directURLs = urlsText ? urlsText.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) : [];
-  if(!directURLs.length && !crawlFirst && !(options.autoExpandDepth>0)){
+  if(!directURLs.length && !crawlFirst && !(options.autoExpandDepth>0) && !(Array.isArray(options.planSeeds) && options.planSeeds.length)){
     startingJob = false;
     return res.status(400).json({error:'No direct URLs and no crawl/auto-expand requested'});
   }
@@ -910,11 +969,16 @@ app.post('/api/run',(req,res)=>{
     return res.json({ ok:true, runId:id, dir, crawling:true });
   }
 
-  if(!directURLs.length && !options.planFirst){
+  if(!directURLs.length && !options.planFirst && !(Array.isArray(options.planSeeds) && options.planSeeds.length)){
     startingJob = false;
     return res.status(400).json({error:'no direct URLs'});
   }
   let seedsFile = path.join(dir,'seeds.txt');
+  // If explicit planSeeds array provided, write and use it directly
+  if(Array.isArray(options.planSeeds) && options.planSeeds.length){
+    try{ fs.writeFileSync(seedsFile, options.planSeeds.join('\n')+'\n','utf8'); }
+    catch(e){ return res.status(500).json({ error:'failed to write planSeeds: '+e.message }); }
+  } else if(options.planFirst){
   // Plan-first: generate explicit seeds via smart-map
   if(options.planFirst){
     try{

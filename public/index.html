@@ -247,6 +247,37 @@ summary{cursor:pointer;font-weight:600}
 </section>
 
 <section>
+  <h2>Plan Builder</h2>
+  <div class="group">
+    <div class="row">
+      <div class="col"><textarea id="planStartUrls" rows="2" placeholder="https://example.com/"></textarea></div>
+      <div class="col"><button id="btnPlanBuild">Build Plan</button></div>
+    </div>
+    <div class="small">Metrics: <span id="planMetrics">-</span></div>
+    <div class="row">
+      <div class="col">
+        <h3>Available URLs</h3>
+        <div id="planAvailable" style="max-height:200px;overflow:auto;border:1px solid #dde2e6;border-radius:6px"></div>
+      </div>
+      <div class="col">
+        <h3>Selected (orderable)</h3>
+        <div id="planSelected" style="max-height:200px;overflow:auto;border:1px solid #dde2e6;border-radius:6px"></div>
+      </div>
+    </div>
+    <div class="flex" style="margin-top:.5rem">
+      <button id="btnPlanSelect">Add →</button>
+      <button id="btnPlanRemove" class="secondary">← Remove</button>
+      <button id="btnPlanUp" class="secondary">Move Up</button>
+      <button id="btnPlanDown" class="secondary">Move Down</button>
+      <button id="btnPlanSave" class="secondary">Save Curated</button>
+      <button id="btnPlanExport" class="secondary">Export JSON</button>
+      <input type="file" id="planImportFile" style="display:none" accept="application/json">
+      <button id="btnPlanImport" class="secondary">Import JSON</button>
+    </div>
+  </div>
+</section>
+
+<section>
   <h2>Host</h2>
   <div class="flex">
     <input id="hostRun" placeholder="Select a run from table" readonly>

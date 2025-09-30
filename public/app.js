@@ -8,6 +8,10 @@
   const jobsBody   = document.querySelector('#jobsTable tbody');
   let selectedRun  = null;
   let platforms    = [];
+  // Plan state
+  let planAvailable = []; // all URLs from plan (union of lists)
+  let planSelected = [];  // curated selected list (ordered)
+  let planRunId = null;   // runId where plan files are stored
   logCap('App bootstrap (advanced)');
 
   // ---------- Utilities
@@ -122,6 +126,10 @@
       id('hostRun').value = selectedRun;
       logCap('Selected run '+selectedRun);
       id('hpNotice').textContent = 'Selected run: '+selectedRun;
+      // Try to load existing plan for this run
+      fetchJSON('/api/plan/'+selectedRun).then(j=>{
+        if(j && j.ok && j.map){ renderPlanFromMap(j.map, selectedRun); }
+      }).catch(()=>{});
     }
   });
 
@@ -200,6 +208,84 @@
     return opts;
   }
 
+  // ---------- Plan Builder UI ----------
+  function renderPlanFromMap(map, runId){
+    planRunId = runId || planRunId;
+    const counts = map.counts||{};
+    id('planMetrics').textContent = `home=${counts.home||0}, categories=${counts.categories||0}, info=${counts.information||0}, products=${counts.products||0}, seeds=${counts.seeds||0}`;
+    const lists = map.lists || {};
+    const all = [ ...(lists.home||[]), ...(lists.categories||[]), ...(lists.information||[]), ...(lists.products||[]) ];
+    planAvailable = [...new Set(all)];
+    renderPlanLists();
+  }
+  function renderPlanLists(){
+    const mk = (arr, idName)=>{
+      const el = id(idName); if(!el) return;
+      el.innerHTML = arr.map(u=>`<div class="rowItem"><label class="opt"><input type="checkbox" data-url="${encodeURIComponent(u)}"> ${u}</label></div>`).join('');
+    };
+    mk(planAvailable, 'planAvailable');
+    mk(planSelected, 'planSelected');
+  }
+  function getChecked(containerId){
+    const el = id(containerId); if(!el) return [];
+    return Array.from(el.querySelectorAll('input[type="checkbox"]:checked')).map(x=>decodeURIComponent(x.getAttribute('data-url')||''));
+  }
+  id('btnPlanBuild').onclick = ()=>{
+    const startText = (id('planStartUrls').value||'').trim();
+    if(!startText){ alert('Enter start URL(s)'); return; }
+    const options = buildOptions();
+    fetch('/api/plan/build',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ startUrlsText: startText, options }) })
+      .then(jsonMaybe).then(j=>{
+        if(j && j.ok && j.map){ renderPlanFromMap(j.map, j.runId); logCap('Plan built: '+JSON.stringify(j.map.counts)); selectedRun = j.runId; id('hostRun').value=j.runId; }
+        else logCap('Plan build response '+JSON.stringify(j||{}));
+      }).catch(e=>logCap('Plan build error '+e.message));
+  };
+  id('btnPlanSelect').onclick=()=>{
+    const sel = getChecked('planAvailable');
+    const setSel = new Set(planSelected);
+    sel.forEach(u=>{ if(!setSel.has(u)) planSelected.push(u); });
+    renderPlanLists();
+  };
+  id('btnPlanRemove').onclick=()=>{
+    const sel = getChecked('planSelected');
+    const rm = new Set(sel);
+    planSelected = planSelected.filter(u=>!rm.has(u));
+    renderPlanLists();
+  };
+  function move(delta){
+    const sel = getChecked('planSelected'); if(sel.length!==1) return;
+    const u = sel[0];
+    const idx = planSelected.indexOf(u); if(idx<0) return;
+    const nidx = idx+delta; if(nidx<0 || nidx>=planSelected.length) return;
+    const tmp = planSelected[nidx]; planSelected[nidx]=planSelected[idx]; planSelected[idx]=tmp;
+    renderPlanLists();
+  }
+  id('btnPlanUp').onclick=()=>move(-1);
+  id('btnPlanDown').onclick=()=>move(1);
+  id('btnPlanSave').onclick=()=>{
+    if(!selectedRun){ alert('Select or build a run first'); return; }
+    fetch('/api/plan/'+selectedRun, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ selected: planSelected, order: planSelected }) })
+      .then(jsonMaybe).then(j=>{ logCap('Plan saved '+JSON.stringify(j)); })
+      .catch(e=>logCap('Plan save error '+e.message));
+  };
+  id('btnPlanExport').onclick=()=>{
+    const data = { selected: planSelected, available: planAvailable };
+    const blob = new Blob([JSON.stringify(data,null,2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='plan.json'; a.click(); URL.revokeObjectURL(url);
+  };
+  id('btnPlanImport').onclick=()=> id('planImportFile').click();
+  id('planImportFile').addEventListener('change', async (e)=>{
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    try{
+      const text = await f.text();
+      const j = JSON.parse(text);
+      planAvailable = Array.isArray(j.available)? j.available : planAvailable;
+      planSelected = Array.isArray(j.selected)? j.selected : planSelected;
+      renderPlanLists();
+    }catch(err){ alert('Import parse error: '+err.message); }
+  });
+
   // ---------- Start Run
   id('btnStart').onclick = ()=>{
     const urls = asStr(id('seedInput')).split(/\n+/).filter(Boolean);
@@ -207,6 +293,8 @@
     // store first url in recent
     pushRecentSeed(urls[0]);
   const options = buildOptions();
+    // If planSelected has entries, send as planSeeds to use explicitly
+    if(planSelected.length){ options.planSeeds = planSelected.slice(); }
     id('btnStart').disabled=true; id('btnStop').disabled=false;
     logCap('POST /api/run start');
     fetch('/api/run',{ method:'POST', headers:{'Content-Type':'application/json'},

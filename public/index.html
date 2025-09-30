@@ -52,7 +52,8 @@ summary{cursor:pointer;font-weight:600}
     <div class="col">
       <label class="opt"><input type="checkbox" id="optProfiles" checked>desktop,mobile</label>
       <label class="opt"><input type="checkbox" id="optAggressive">aggressive</label>
-      <label class="opt"><input type="checkbox" id="optPreserve">preserve paths</label>
+  <label class="opt" title="Save assets and pages using original paths for a true mirror"><input type="checkbox" id="optPreserve" checked>preserve paths</label>
+        <label class="opt"><input type="checkbox" id="optBlockTrackers"> Block analytics/ads/pixels</label>
       <label class="opt"><input type="checkbox" id="optScroll">scroll passes=2</label>
     </div>
     <div class="col">
@@ -65,8 +66,22 @@ summary{cursor:pointer;font-weight:600}
         <label class="opt"><input type="checkbox" id="autoSameHost" checked>same host</label>
         <label class="opt"><input type="checkbox" id="autoSubs" checked>include subdomains</label>
       </div>
-      <input id="autoAllow" placeholder="allow regex (optional)">
-      <input id="autoDeny" placeholder="deny regex (optional)">
+      <div class="row">
+        <div class="col">
+          <input id="autoAllow" placeholder="allow regex (optional)">
+          <select id="autoAllowPreset">
+            <option value="">Preset: (none)</option>
+            <option value="route=product/(?:category|product)|product_id=|/product(?:/\\?)|/category(?:/\\?)|/collections?|/brand|/manufacturer">Preset: Products & Categories</option>
+          </select>
+        </div>
+        <div class="col">
+          <input id="autoDeny" placeholder="deny regex (optional)">
+          <select id="autoDenyPreset">
+            <option value="">Preset: (none)</option>
+            <option value="account|register|login|logout|checkout|cart|wishlist|compare|contact|information/contact|search|tag|affiliate|newsletter|tracking|return">Preset: Account/Checkout/etc</option>
+          </select>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -141,7 +156,7 @@ summary{cursor:pointer;font-weight:600}
         <label class="opt"><input type="checkbox" id="advMirrorCross">mirror cross-origin</label>
         <label class="opt"><input type="checkbox" id="advIncludeCO">include cross-origin</label>
         <label class="opt"><input type="checkbox" id="advRewriteHtmlAssets" checked>rewrite html assets</label>
-        <label class="opt"><input type="checkbox" id="advFlattenRoot">flatten root index</label>
+  <label class="opt"><input type="checkbox" id="advFlattenRoot">flatten root index</label>
         <label class="opt" title="Workaround for sites that break over HTTP/2 during crawl"><input type="checkbox" id="advDisableHttp2">disable HTTP/2 (crawl)</label>
         <label class="opt" title="Skip external crawler and discover links inside archiver (experimental)"><input type="checkbox" id="advDiscoverInArchiver">discover inside archiver</label>
       </div>
@@ -194,8 +209,22 @@ summary{cursor:pointer;font-weight:600}
         <label class="opt"><input type="checkbox" id="crawlSameHost" checked>same host</label>
         <label class="opt"><input type="checkbox" id="crawlSubs" checked>include subdomains</label>
       </div>
-      <input id="crawlAllow" placeholder="allow regex (optional)">
-      <input id="crawlDeny" placeholder="deny regex (optional)">
+      <div class="row">
+        <div class="col">
+          <input id="crawlAllow" placeholder="allow regex (optional)">
+          <select id="crawlAllowPreset">
+            <option value="">Preset: (none)</option>
+            <option value="route=product/(?:category|product)|product_id=|/product(?:/\\?)|/category(?:/\\?)|/collections?|/brand|/manufacturer">Preset: Products & Categories</option>
+          </select>
+        </div>
+        <div class="col">
+          <input id="crawlDeny" placeholder="deny regex (optional)">
+          <select id="crawlDenyPreset">
+            <option value="">Preset: (none)</option>
+            <option value="account|register|login|logout|checkout|cart|wishlist|compare|contact|information/contact|search|tag|affiliate|newsletter|tracking|return">Preset: Account/Checkout/etc</option>
+          </select>
+        </div>
+      </div>
       <div class="flex">
         <button id="btnStartCrawlFirst">Start: Crawl then Capture</button>
       </div>

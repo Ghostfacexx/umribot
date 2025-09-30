@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// server.cjs — Static host with resilient asset resolution and HTML fixes.
+// server.cjs ï¿½ Static host with resilient asset resolution and HTML fixes.
 // Resolves asset 404s for Shopware paths by:
 // 1) direct static (preserved paths)
 // 2) basename alias (first match by filename)
@@ -68,29 +68,92 @@ function guessExtByCT(ct, fallback) {
 }
 const EXT_RE = /\.(?:js|mjs|cjs|css|map|json|ico|png|jpe?g|webp|gif|svg|woff2?|ttf|otf|mp4|webm|wav|mp3)$/i;
 
-// Resolve HTML variant
-function resolveHtml(reqPath) {
+// Resolve HTML variant (supports query-string routers like index.php?route=...)
+function resolveHtml(reqOrPath) {
+  const hasReq = typeof reqOrPath === 'object' && reqOrPath !== null;
+  const reqPath = hasReq ? (reqOrPath.path || reqOrPath.url || '/') : reqOrPath;
+  const rawQuery = hasReq ? String((reqOrPath.originalUrl||'').split('?')[1]||'') : '';
+
   let p = decodeURIComponent(reqPath || '/').split('?')[0];
   p = p.replace(/\\/g, '/');
   if (!p.startsWith('/')) p = '/' + p;
   if (!p.endsWith('/') && !/\.[a-zA-Z0-9]+$/.test(p)) p += '/';
 
   if (p === '/' || p === '') {
+    // Legacy order: per-profile folders under /index, then a flat root index.html as last fallback
     return tryFiles([
       path.join(ROOT, 'index', DEFAULT_VARIANT, 'index.html'),
       path.join(ROOT, 'index', 'desktop', 'index.html'),
       path.join(ROOT, 'index', 'mobile', 'index.html'),
-      path.join(ROOT, 'index.html'),
+      path.join(ROOT, 'index.html')
     ]);
   }
 
   const relDir = p.replace(/^\/+/, '').replace(/\/+$/, '');
   const base = path.join(ROOT, relDir);
-  const ordered = DEFAULT_VARIANT === 'mobile'
+  const ordered = (DEFAULT_VARIANT === 'mobile')
     ? [path.join(base, 'mobile', 'index.html'), path.join(base, 'desktop', 'index.html'), path.join(base, 'index.html')]
     : [path.join(base, 'desktop', 'index.html'), path.join(base, 'mobile', 'index.html'), path.join(base, 'index.html')];
 
-  return tryFiles(ordered);
+  // First try the plain directory mapping
+  const plain = tryFiles(ordered);
+  if (plain) return plain;
+
+  // If this is a script-like path with a query (OpenCart, Woo, etc.), try query-derived variants
+  if (rawQuery && /\.(php|asp|aspx|jsp|cgi)$/i.test(relDir)) {
+    function sanitizeSeg(s){
+      // prevent path traversal and normalize to safe segments
+      return s.replace(/\.+/g,'').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'');
+    }
+    function slugifyQueryLikeArchiver(qs){
+      try{
+        const sp = new URLSearchParams(qs);
+        const entries=[]; for(const [k,v] of sp.entries()) entries.push([k,v]);
+        entries.sort((a,b)=> a[0]===b[0] ? String(a[1]).localeCompare(String(b[1])) : a[0].localeCompare(b[0]));
+        const parts = entries.map(([k,v])=>{
+          const kk=String(k).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+          const vv=String(v).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+          return kk + (vv?('_'+vv):'');
+        }).filter(Boolean);
+        if(!parts.length) return '';
+        const slug = parts.join('__');
+        return slug.length>120 ? (slug.slice(0,100)+'__'+sha16(slug)) : slug;
+      }catch{ return ''; }
+    }
+    // Variant A: key/value pairs as nested segments: route/product/category/path/85
+    const kvPairs = [];
+    try{
+      for (const part of rawQuery.split('&')){
+        if(!part) continue;
+        const [k,v=''] = part.split('=');
+        const ks = sanitizeSeg(decodeURIComponent(k||''));
+        let vs = decodeURIComponent(v||'');
+        // values may contain slashes (e.g., product/category) -> keep as nested dirs with sanitized tokens
+        const vParts = vs.split('/').map(sanitizeSeg).filter(Boolean);
+        if(ks) kvPairs.push(ks, ...vParts);
+      }
+    }catch{}
+    const varA = kvPairs.filter(Boolean).join(path.sep);
+
+  // Variant B: archiver-style slug appended to the base name
+  const varBslug = slugifyQueryLikeArchiver(rawQuery);
+
+    const variants = [];
+    if (varA) variants.push(varA);
+  if (varBslug && varBslug !== varA) variants.push(varBslug);
+
+    for (const v of variants){
+  // If v is the archiver slug (no path separators), try base+'__'+slug; otherwise treat as nested folders
+  const qb = /\//.test(v) ? path.join(base, v) : path.join(path.dirname(base), path.basename(base) + '__' + v);
+      const qOrdered = (DEFAULT_VARIANT === 'mobile')
+        ? [path.join(qb, 'mobile', 'index.html'), path.join(qb, 'desktop', 'index.html'), path.join(qb, 'index.html')]
+        : [path.join(qb, 'desktop', 'index.html'), path.join(qb, 'mobile', 'index.html'), path.join(qb, 'index.html')];
+      const hit = tryFiles(qOrdered);
+      if (hit) return hit;
+    }
+  }
+
+  return null;
 }
 
 // Build basename alias index
@@ -265,7 +328,7 @@ app.get(/.*/, (req, res, next) => {
   const isHtmlPreferred = accept.includes('text/html') || !/\.[a-zA-Z0-9]+$/.test(req.path);
   if (!isHtmlPreferred) return next();
 
-  const resolved = resolveHtml(req.path);
+  const resolved = resolveHtml(req);
   if (!resolved) return next();
 
   if (DISABLE_HTML_INJECT) {

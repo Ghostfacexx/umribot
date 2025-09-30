@@ -88,7 +88,15 @@ const MAX_DEPTH         = parseInt(process.env.MAX_DEPTH||'3',10);
 const SAME_HOST_ONLY    = flag('SAME_HOST_ONLY', true);
 const INCLUDE_SUBDOMAINS= flag('INCLUDE_SUBDOMAINS', true);
 const ALLOW_REGEX_STR   = process.env.ALLOW_REGEX || '';
-const DENY_REGEX_STR    = process.env.DENY_REGEX || '';
+let   DENY_REGEX_STR    = process.env.DENY_REGEX || '';
+// Optional tracker blocking
+const TRACKER_BLOCK     = flag('TRACKER_BLOCK', false);
+const TRACKER_DENY_REGEX= process.env.TRACKER_DENY_REGEX || '';
+if (TRACKER_BLOCK && TRACKER_DENY_REGEX) {
+  DENY_REGEX_STR = DENY_REGEX_STR
+    ? `(?:${DENY_REGEX_STR})|(?:${TRACKER_DENY_REGEX})`
+    : TRACKER_DENY_REGEX;
+}
 const KEEP_QUERY_PARAMS = (process.env.KEEP_QUERY_PARAMS||'').split(',').map(s=>s.trim()).filter(Boolean);
 const STRIP_ALL_QUERIES = flag('STRIP_ALL_QUERIES', false);
 const WAIT_AFTER_LOAD   = parseInt(process.env.WAIT_AFTER_LOAD||'500',10);
@@ -145,7 +153,7 @@ function nextProxy(pagesDone){
 }
 
 /* Normalization */
-function normalizeURL(raw, rootHost){
+function normalizeURL(raw, rootHost, opts={}){
   let u;
   try {
     u = new URL(raw);
@@ -175,7 +183,7 @@ function normalizeURL(raw, rootHost){
   try {
     if (u.pathname !== '/' && final.endsWith('/')) final=final.slice(0,-1);
   } catch {}
-  if (allowRx && !allowRx.test(final)) return null;
+  if (!opts.bypassAllow && allowRx && !allowRx.test(final)) return null;
   if (denyRx && denyRx.test(final)) return null;
   return final;
 }
@@ -322,12 +330,13 @@ async function crawl(){
 
   const queue=[];               // BFS queue: {url, depth}
   const seen=new Set();         // all normalized URLs ever seen (discovered)
-  const visitedOrder=[];        // order of ACTUAL FETCHES (pages we opened) -> seeds for archiver
+  const visitedOrder=[];        // order of ACTUAL FETCHES (pages we opened)
+  const visitedSeeds=[];        // subset of visited that match allow (or all if no allow)
   const depths=new Map();       // url -> depth (for graph)
   const edges=[];               // {from,to}
 
   START_URLS.forEach(u=>{
-    const n=normalizeURL(u, rootHost);
+    const n=normalizeURL(u, rootHost, { bypassAllow:true });
     if(n && !seen.has(n)){
       seen.add(n);
       depths.set(n,0);
@@ -345,7 +354,7 @@ async function crawl(){
   await applyStealth(context);
 
   async function processItem(item){
-    if (pagesCrawled >= MAX_PAGES) return;
+    if (visitedSeeds.length >= MAX_PAGES) return;
     if (item.depth > MAX_DEPTH) return;
     if (stopRequested(OUTPUT_DIR)) return;
 
@@ -375,6 +384,8 @@ async function crawl(){
             // Mark visited even if headless navigation failed; we at least fetched HTML
             visitedOrder.push(item.url);
             pagesCrawled++;
+            const allowedForSeed = allowRx ? allowRx.test(item.url) : true;
+            if (allowedForSeed) visitedSeeds.push(item.url);
             // feed anchors to queue
             for(const rawHref of anchors){
               const resolved = (()=>{ try{ return new URL(rawHref, item.url).toString(); }catch{ return null; } })();
@@ -401,8 +412,10 @@ async function crawl(){
   if (WAIT_AFTER_LOAD>0) await page.waitForTimeout(WAIT_AFTER_LOAD);
   try{ await humanizePage(page); }catch{}
       // Mark visited
-      visitedOrder.push(item.url);
-      pagesCrawled++;
+  visitedOrder.push(item.url);
+  pagesCrawled++;
+  const allowedForSeed = allowRx ? allowRx.test(item.url) : true;
+  if (allowedForSeed) visitedSeeds.push(item.url);
 
   // Extract links only if we can still expand and we have a DOM (navigated true)
   if (navigated && pagesCrawled < MAX_PAGES && item.depth < MAX_DEPTH){
@@ -419,7 +432,7 @@ async function crawl(){
           if(!raw) continue;
           let resolved;
             try { resolved=new URL(raw, item.url).toString(); } catch { continue; }
-          const norm=normalizeURL(resolved, rootHost);
+          const norm=normalizeURL(resolved, rootHost, { bypassAllow:true });
           if(!norm) continue;
           edges.push({ from:item.url, to:norm });
           if(!seen.has(norm)){
@@ -427,7 +440,7 @@ async function crawl(){
             const d=item.depth+1;
             depths.set(norm,d);
             // Enqueue only if we still can fetch more pages and depth within limit
-            if (d <= MAX_DEPTH && visitedOrder.length < MAX_PAGES){
+            if (d <= MAX_DEPTH && visitedSeeds.length < MAX_PAGES){
               queue.push({ url:norm, depth:d });
             }
           }
@@ -443,7 +456,7 @@ async function crawl(){
     }
   }
 
-  while(queue.length && pagesCrawled < MAX_PAGES){
+  while(queue.length && visitedSeeds.length < MAX_PAGES){
     if (stopRequested(OUTPUT_DIR)) break;
     const item=queue.shift();
     await processItem(item);
@@ -452,7 +465,7 @@ async function crawl(){
   try { await browser.close(); } catch {}
 
   // seedsForArchive: exactly the visited pages (limit enforced)
-  const seedsForArchive = visitedOrder.slice(0, MAX_PAGES);
+  const seedsForArchive = visitedSeeds.slice(0, MAX_PAGES);
   // For debugging: full discovered set
   fs.writeFileSync(path.join(crawlDir,'discovered-debug.txt'), Array.from(seen).join('\n')+'\n','utf8');
   // Output only fetched pages to urls.txt

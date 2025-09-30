@@ -77,21 +77,43 @@ const ALT_USER_AGENTS=(process.env.ALT_USER_AGENTS||'').split(',').map(s=>s.trim
 const DOMAIN_FILTER_ENV=process.env.DOMAIN_FILTER||'';
 const REWRITE_INTERNAL=envB('REWRITE_INTERNAL',true);
 const INTERNAL_REWRITE_REGEX=process.env.INTERNAL_REWRITE_REGEX||'';
+// Default: use 'index' folder for root (do not flatten), to keep page variants under /index/desktop and /index/mobile
 const FLATTEN_ROOT_INDEX=envB('FLATTEN_ROOT_INDEX',false);
 
-const PRESERVE_ASSET_PATHS=envB('PRESERVE_ASSET_PATHS',false);
+// Mirror defaults: preserve original asset paths for same-site to achieve an identical structure
+const PRESERVE_ASSET_PATHS=envB('PRESERVE_ASSET_PATHS',true);
 const MIRROR_SUBDOMAINS=envB('MIRROR_SUBDOMAINS',true);
 const MIRROR_CROSS_ORIGIN=envB('MIRROR_CROSS_ORIGIN',false);
 const REWRITE_HTML_ASSETS=envB('REWRITE_HTML_ASSETS',true);
 const INLINE_SMALL_ASSETS=envN('INLINE_SMALL_ASSETS',0);
 const PAGE_WAIT_UNTIL=(process.env.PAGE_WAIT_UNTIL||'domcontentloaded');
+// Primary submitted URL (from GUI). We guarantee it's captured and becomes the root redirect target.
+const PRIMARY_START_URL = process.env.PRIMARY_START_URL || '';
+// Optional tracker blocking (ads/analytics/pixels)
+const BLOCK_TRACKERS = envB('BLOCK_TRACKERS', false);
+const TRACKER_SKIP_PATTERNS = (process.env.TRACKER_SKIP_PATTERNS||'').split(',').map(s=>s.trim()).filter(Boolean);
+let TRACKER_RX = null; try{
+  TRACKER_RX = TRACKER_SKIP_PATTERNS.length ? new RegExp(TRACKER_SKIP_PATTERNS.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|'),'i') : null;
+}catch{ TRACKER_RX = null; }
 let QUIET_MILLIS=envN('QUIET_MILLIS',1500);
 let MAX_CAPTURE_MS=envN('MAX_CAPTURE_MS',20000);
+
+// Pages are saved under per-profile subfolders (e.g., rel/desktop/index.html, rel/mobile/index.html)
 
 /* Optional internal discovery (no external crawler) */
 const DISCOVER_IN_ARCHIVER = envB('DISCOVER_IN_ARCHIVER', false);
 const DISCOVER_MAX_PAGES = envN('DISCOVER_MAX_PAGES', 50);
 const DISCOVER_MAX_DEPTH = envN('DISCOVER_MAX_DEPTH', 1);
+const DISCOVER_ALLOW_REGEX = process.env.DISCOVER_ALLOW_REGEX || '';
+const DISCOVER_DENY_REGEX = process.env.DISCOVER_DENY_REGEX || '';
+let DISCOVER_ALLOW_RX = null, DISCOVER_DENY_RX = null;
+try { if (DISCOVER_ALLOW_REGEX) DISCOVER_ALLOW_RX = new RegExp(DISCOVER_ALLOW_REGEX, 'i'); } catch {}
+try { if (DISCOVER_DENY_REGEX) DISCOVER_DENY_RX = new RegExp(DISCOVER_DENY_REGEX, 'i'); } catch {}
+function isAllowedByDiscover(url){
+  const a = DISCOVER_ALLOW_RX ? DISCOVER_ALLOW_RX.test(url) : true;
+  const d = DISCOVER_DENY_RX ? !DISCOVER_DENY_RX.test(url) : true;
+  return a && d;
+}
 
 /* Same-site ENV */
 const SAME_SITE_MODE=(process.env.SAME_SITE_MODE||'etld').toLowerCase(); // 'exact' | 'subdomains' | 'etld'
@@ -212,13 +234,49 @@ function readSeeds(f){
   if(DOMAIN_FILTER_ENV){
     try{ const rx=new RegExp(DOMAIN_FILTER_ENV,'i'); lines=lines.filter(l=>rx.test(l)); }catch{}
   }
+  // Ensure PRIMARY_START_URL is included and first, if provided
+  try{
+    if (PRIMARY_START_URL) {
+      const set = new Set(lines);
+      set.delete(PRIMARY_START_URL);
+      return [PRIMARY_START_URL, ...set];
+    }
+  } catch {}
   return [...new Set(lines)];
 }
 function localPath(uStr){
   const u=new URL(uStr);
-  let p=u.pathname.replace(/\/+$/,'');
-  if(p==='') return FLATTEN_ROOT_INDEX ? '' : 'index';
-  return p.replace(/^\/+/,'');
+  return pageRelFromUrl(u);
+}
+
+// Include query params in page path to uniquely map dynamic routes (e.g., index.php?route=category)
+const INCLUDE_PAGE_QUERY_IN_PATH = envB('INCLUDE_PAGE_QUERY_IN_PATH', true);
+function slugifyQuery(searchParams){
+  try{
+    const entries = [];
+    for (const [k,v] of searchParams.entries()) entries.push([k,v]);
+    entries.sort((a,b)=> a[0]===b[0] ? String(a[1]).localeCompare(String(b[1])) : a[0].localeCompare(b[0]));
+    const parts = entries.map(([k,v])=>{
+      const kk=String(k).replace(/[^a-z0-9]+/gi,'_').replace(/^_+|_+$/g,'');
+      const vv=String(v).replace(/[^a-z0-9]+/gi,'_').replace(/^_+|_+$/g,'');
+      return kk + (vv?('_'+vv):'');
+    }).filter(Boolean);
+    if(!parts.length) return '';
+    const slug = parts.join('__');
+    return slug.length>120 ? (slug.slice(0,100)+'__'+sha16(slug)) : slug;
+  }catch{ return ''; }
+}
+function pageRelFromUrl(u){
+  let p=(u.pathname||'').replace(/\/+$/,'');
+  if(p==='') p = FLATTEN_ROOT_INDEX ? '' : 'index';
+  else p = p.replace(/^\/+/,'');
+  if(INCLUDE_PAGE_QUERY_IN_PATH){
+    try{
+      const qs = slugifyQuery(u.searchParams||new URLSearchParams());
+      if(qs){ p = (p||'index') + '__' + qs; }
+    }catch{}
+  }
+  return p;
 }
 
 /* ------------ Proxies ------------ */
@@ -363,21 +421,22 @@ function decideAssetLocalPath(targetUrl, baseOrigin){
   return { localPath:file, rewriteTo:file, group:'hashed' };
 }
 function shouldSkipDownloadUrl(url){
-  return SKIP_DOWNLOAD_PATTERNS.some(p=>p && url.includes(p));
+  if (SKIP_DOWNLOAD_PATTERNS.some(p=>p && url.includes(p))) return true;
+  if (BLOCK_TRACKERS && TRACKER_RX && TRACKER_RX.test(url)) return true;
+  return false;
 }
 
 /* ------------ HTML asset rewrite ------------ */
-function rewriteHTML(html,assetIndex){
+function rewriteHTML(html,assetIndex, baseOrigin){
   if(!REWRITE_HTML_ASSETS) return html;
   const $=cheerio.load(html,{decodeEntities:false});
   function processAttr(el,attr){
     const val=$(el).attr(attr); if(!val) return;
-    const cands=[val];
-    if(/^\/\//.test(val)) cands.push('https:'+val,'http:'+val);
-    for(const c of cands){
-      const rec=assetIndex.get(c);
-      if(rec){ $(el).attr(attr,rec.rewriteTo); return; }
-    }
+    // Resolve relative values to absolute to match assetIndex keys
+    const cands=[];
+    try{ cands.push(new URL(val, baseOrigin).toString()); }catch{ cands.push(val); }
+    if(/^\/\//.test(val)) { cands.push('https:'+val,'http:'+val); }
+    for(const c of cands){ const rec=assetIndex.get(c); if(rec){ $(el).attr(attr,rec.rewriteTo); return; } }
   }
   $('link,script,img,source,iframe,video,audio').each((_,el)=>{
     ['href','src','data-src','poster','srcset'].forEach(a=>processAttr(el,a));
@@ -385,7 +444,10 @@ function rewriteHTML(html,assetIndex){
   $('img[srcset],source[srcset]').each((_,el)=>{
     const val=$(el).attr('srcset'); if(!val) return;
     const parts=val.split(',').map(p=>p.trim()).map(p=>{
-      const seg=p.split(/\s+/); const rec=assetIndex.get(seg[0]); if(rec) seg[0]=rec.rewriteTo; return seg.join(' ');
+      const seg=p.split(/\s+/);
+      let abs=seg[0];
+      try{ abs=new URL(seg[0], baseOrigin).toString(); }catch{}
+      const rec=assetIndex.get(abs); if(rec) seg[0]=rec.rewriteTo; return seg.join(' ');
     });
     $(el).attr('srcset',parts.join(', '));
   });
@@ -795,7 +857,8 @@ async function handlePopups(page){
 /* ------------ Per-Profile Capture Core ------------ */
 async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
   const profileDirName = profile.name === 'desktop' ? 'desktop' : profile.name;
-  const pageDirBase = rel ? path.join(outRoot,rel) : outRoot;
+  // Normalize base dir: when rel==='' (flatten root), store under /index/<profile>/ to keep layout consistent
+  const pageDirBase = (rel==='' ? path.join(outRoot,'index') : (rel ? path.join(outRoot,rel) : outRoot));
   const pageDir = path.join(pageDirBase, profileDirName);
   ensureDir(pageDir);
 
@@ -850,6 +913,12 @@ async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
 
     page.on('request',req=>{
       inflight++; activity();
+      // Drop tracker/analytics requests early
+      try{
+        if (BLOCK_TRACKERS && TRACKER_RX && TRACKER_RX.test(req.url())){
+          req.abort(); inflight--; return;
+        }
+      }catch{}
       if(shouldSkipDownloadUrl(req.url()) && req.resourceType()==='document'){
         try{ req.abort(); }catch{} inflight--;
       }
@@ -957,16 +1026,24 @@ async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
           let u; try{ u=new URL(v,baseOrigin); }catch{return;}
           const internal = hostRx ? hostRx.test(u.hostname) : isSameSite(u);
           if(!internal) return;
-          let p=u.pathname;
-          if(!/\.[a-z0-9]{2,6}$/i.test(p) && !p.endsWith('/')) p+='/';
-          $(a).attr('href',p);
+          // If it looks like a document (no asset extension) OR it has query params, point to our local saved directory
+          const hasExt=/\.[a-z0-9]{2,6}$/i.test(u.pathname||'');
+          if(!hasExt || (u.search && u.search.length>1)){
+            const rel = pageRelFromUrl(u);
+            const href = '/' + (rel ? (rel + '/') : '');
+            $(a).attr('href', href + (u.hash||''));
+          } else {
+            // For direct files (e.g., PDF), keep as is relative to origin
+            let p=u.pathname; if(!p) p='/';
+            $(a).attr('href', p + (u.hash||''));
+          }
         });
         html=$.html();
       }catch(e){ record.reasons.push('rewriteInternalErr:'+e.message); }
     }
 
     if(REWRITE_HTML_ASSETS){
-      try{ html=rewriteHTML(html,sharedAssetIndex); }catch(e){ record.reasons.push('assetRewriteErr:'+e.message); }
+      try{ html=rewriteHTML(html,sharedAssetIndex, page.url()); }catch(e){ record.reasons.push('assetRewriteErr:'+e.message); }
     }
 
     // Inject offline fallback shim (preserves app logic; only falls back when live fails)
@@ -1021,10 +1098,29 @@ async function capture(pageNum,url,outRoot){
 function ensureRootIndex(outDir, manifest){
   const rootIndex = path.join(outDir, 'index.html');
   if (fs.existsSync(rootIndex)) return; // don?t overwrite
-  const primary = manifest.find(r => r.profile === 'desktop') || manifest[0];
-  if (!primary) return;
-  const rel = (primary.relPath || '').replace(/^\/+/, '');
-  const target = '/' + (rel ? rel + '/' : '');
+  // Prefer the explicitly submitted URL (PRIMARY_START_URL) if available in manifest
+  let primary = null;
+  let rel = '';
+  if (PRIMARY_START_URL) {
+    try {
+      const u = new URL(PRIMARY_START_URL);
+      const desiredRel = pageRelFromUrl(u);
+      // find matching desktop record by relPath
+      primary = manifest.find(r => r.profile === 'desktop' && (r.relPath||'') === desiredRel)
+             || manifest.find(r => (r.relPath||'') === desiredRel)
+             || null;
+      rel = desiredRel;
+    } catch {}
+  }
+  if (!primary) {
+    primary = manifest.find(r => r.profile === 'desktop') || manifest[0];
+    if (!primary) return;
+    rel = (primary.relPath || '').replace(/^\/+/, '');
+  } else {
+    rel = (rel || '').replace(/^\/+/, '');
+  }
+  // If FLATTEN_ROOT_INDEX was used (rel==='' case), saved content lives under /index/<profile>/, so redirect to /index/
+  const target = '/' + (rel ? rel + '/' : 'index/');
   const title = (() => {
     try { return new URL(primary.url).hostname + ' snapshot'; } catch { return 'Snapshot'; }
   })();
@@ -1099,7 +1195,7 @@ function ensureRootIndex(outDir, manifest){
       page = await context.newPage();
       page.setDefaultNavigationTimeout(NAV_TIMEOUT);
 
-      const discovered = [];
+    const discovered = [];
       while (queue.length && discovered.length < DISCOVER_MAX_PAGES) {
         const { url, depth } = queue.shift();
         // Navigate with fallback to commit if needed
@@ -1149,10 +1245,17 @@ function ensureRootIndex(outDir, manifest){
           try { const u = new URL(abs); u.hash=''; abs=u.toString(); } catch {}
           // same-site check
           try { if (!isSameSite(abs)) continue; } catch {}
+          // For traversal: respect deny strictly, but don't require allow to expand (we may need intermediates)
+          if (DISCOVER_DENY_RX && DISCOVER_DENY_RX.test(abs)) continue;
           normed.push(abs);
         }
-        // Record and expand next depth
-        discovered.push(url);
+        // Record (only if allowed) and expand next depth
+        if (!DISCOVER_ALLOW_RX && !DISCOVER_DENY_RX) {
+          discovered.push(url);
+        } else {
+          // Allow recording only when the current URL matches filters; seed (depth 0) is not forced
+          if (isAllowedByDiscover(url)) discovered.push(url);
+        }
         if (depth < DISCOVER_MAX_DEPTH) {
           for (const n of normed) {
             if (discovered.length + queue.length >= DISCOVER_MAX_PAGES) break;
@@ -1163,6 +1266,14 @@ function ensureRootIndex(outDir, manifest){
       }
 
       finalSeeds = discovered.slice(0, DISCOVER_MAX_PAGES);
+      // Make sure PRIMARY_START_URL stays first and present
+      try {
+        if (PRIMARY_START_URL) {
+          const set = new Set(finalSeeds);
+          set.delete(PRIMARY_START_URL);
+          finalSeeds = [PRIMARY_START_URL, ...set];
+        }
+      } catch {}
       // Persist for transparency
       try { fs.writeFileSync(path.join(crawlDir, 'urls.txt'), finalSeeds.join('\n') + '\n', 'utf8'); } catch {}
       console.log(`[DISCOVER_DONE] seeds=${finalSeeds.length}`);

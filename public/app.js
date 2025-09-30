@@ -131,6 +131,8 @@
     if(id('optProfiles').checked) opts.profiles='desktop,mobile';
     if(id('optAggressive').checked) opts.aggressiveCapture=true;
     if(id('optPreserve').checked) opts.preserveAssetPaths=true;
+  // Block trackers (analytics/ads/pixels)
+  if(id('optBlockTrackers')?.checked) opts.blockTrackers = true;
     if(id('optScroll').checked) { opts.scrollPasses=2; }
 
     // Auto-expand
@@ -202,7 +204,7 @@
     if(!urls.length){ alert('Enter at least one URL'); return; }
     // store first url in recent
     pushRecentSeed(urls[0]);
-    const options = buildOptions();
+  const options = buildOptions();
     id('btnStart').disabled=true; id('btnStop').disabled=false;
     logCap('POST /api/run start');
     fetch('/api/run',{ method:'POST', headers:{'Content-Type':'application/json'},
@@ -223,7 +225,7 @@
     if(!startUrls){ alert('Enter crawl seeds'); return; }
     // store first seed
     pushRecentSeed(startUrls.split(/\n/)[0]);
-    const options = buildOptions();
+  const options = buildOptions();
     const crawlOptions = {
       maxDepth:   asNum(id('crawlDepth'),3),
       maxPages:   asNum(id('crawlMaxPages'),200),
@@ -370,6 +372,23 @@
   });
 
   // ---------- Init
+  function wireRegexPresets(){
+    const pairs = [
+      ['autoAllowPreset','autoAllow'],
+      ['autoDenyPreset','autoDeny'],
+      ['crawlAllowPreset','crawlAllow'],
+      ['crawlDenyPreset','crawlDeny'],
+    ];
+    pairs.forEach(([selId,inputId])=>{
+      const sel = document.getElementById(selId);
+      const inp = document.getElementById(inputId);
+      if(!sel || !inp) return;
+      sel.addEventListener('change',()=>{
+        const v = sel.value || '';
+        if(v){ inp.value = v; inp.dispatchEvent(new Event('input')); }
+      });
+    });
+  }
   // Load help settings for tooltips
   fetch('/api/settings').then(jsonMaybe).then(j=>{
     try{
@@ -382,5 +401,6 @@
   }).catch(e=>logCap('settings err '+e.message));
 
   renderRecentSeeds();
+  wireRegexPresets();
   loadRuns(); loadPlatforms(); refreshJobs(); syncButtons(); logCap('Init complete (advanced)');
 })();

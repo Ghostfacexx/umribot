@@ -96,6 +96,7 @@ const UI_SETTINGS_HELP = {
   optProfiles: 'Capture both desktop and mobile profiles if enabled (PROFILES=desktop,mobile).',
   optAggressive: 'Enable aggressive capture mode to click and expand more dynamic content.',
   optPreserve: 'Preserve original asset paths where possible instead of hashing.',
+  optBlockTrackers: 'Block common analytics/ads/pixel requests during crawl and capture to speed up and reduce noise (UI content unaffected).',
   optScroll: 'Perform extra scroll passes to trigger lazy-loaded content.',
 
   // Auto-expand discovery from provided seeds
@@ -222,7 +223,10 @@ function buildCrawlEnv(options, dir, startUrls) {
     DISABLE_HTTP2: (o.disableHttp2?'true':'false'),
     PAGE_WAIT_UNTIL: o.pageWaitUntil || 'domcontentloaded',
     STEALTH: (o.stealth===false?'false':'true'),
-    PROXIES_FILE: proxiesFile
+    PROXIES_FILE: proxiesFile,
+    // Optional tracker blocking for crawler: merge with deny regex
+    TRACKER_BLOCK: (o.blockTrackers ? '1' : ''),
+    TRACKER_DENY_REGEX: (o.blockTrackers ? '(analytics|gtm|google-?tag|doubleclick|facebook|pixel|hotjar|clarity|segment|fullstory|optimizely|datadog|newrelic|sentry|bugsnag|mixpanel|adservice|googlesyndication|stats|beacon)' : '')
   };
 }
 
@@ -244,7 +248,8 @@ function getArchiverDefaults(){
     rewriteInternal: true,
     internalRewriteRegex: '',
     domainFilter: '',
-    preserveAssetPaths: false,
+    // Mirror-first defaults
+    preserveAssetPaths: true,
     rewriteHtmlAssets: true,
     mirrorSubdomains: true,
     mirrorCrossOrigin: false,
@@ -265,7 +270,8 @@ function getArchiverDefaults(){
     forceConsentWaitMs: 0,
     removeSelectors: '',
     skipDownloadPatterns: '',
-    flattenRoot: false,
+  // Keep legacy layout with /index/desktop, not flattening by default
+  flattenRoot: false,
     aggressiveCapture: false,
     profiles: (process.env.PROFILES || 'desktop,mobile'),
     sameSiteMode: (process.env.SAME_SITE_MODE || 'etld'),
@@ -297,7 +303,7 @@ function buildArchiverEnv(options){
     REWRITE_INTERNAL: (o.rewriteInternal===false?'false':'true'),
     INTERNAL_REWRITE_REGEX: o.internalRewriteRegex || d.internalRewriteRegex,
     DOMAIN_FILTER: o.domainFilter || d.domainFilter,
-    PRESERVE_ASSET_PATHS: (o.preserveAssetPaths?'true':'false'),
+  PRESERVE_ASSET_PATHS: (o.preserveAssetPaths===false ? 'false' : 'true'),
     REWRITE_HTML_ASSETS: (o.rewriteHtmlAssets===false?'false':'true'),
     MIRROR_SUBDOMAINS: (o.mirrorSubdomains===false?'false':'true'),
     MIRROR_CROSS_ORIGIN: (o.mirrorCrossOrigin?'true':'false'),
@@ -318,7 +324,7 @@ function buildArchiverEnv(options){
     FORCE_CONSENT_WAIT_MS: String(o.forceConsentWaitMs ?? d.forceConsentWaitMs),
     REMOVE_SELECTORS: (o.removeSelectors || d.removeSelectors).trim(),
     SKIP_DOWNLOAD_PATTERNS: (o.skipDownloadPatterns || d.skipDownloadPatterns).trim(),
-    FLATTEN_ROOT_INDEX: (o.flattenRoot?'1':'0'),
+  FLATTEN_ROOT_INDEX: (o.flattenRoot ? '1' : '0'),
     AGGRESSIVE_CAPTURE: (o.aggressiveCapture?'true':'false'),
     PROFILES: o.profiles || d.profiles,
     SAME_SITE_MODE: o.sameSiteMode || d.sameSiteMode,
@@ -331,7 +337,16 @@ function buildArchiverEnv(options){
     // optional internal discovery mode (replace external crawler)
     DISCOVER_IN_ARCHIVER: (o.discoverInArchiver ? 'true' : 'false'),
     DISCOVER_MAX_PAGES: String(o.autoExpandMaxPages ?? 50),
-    DISCOVER_MAX_DEPTH: String(o.autoExpandDepth ?? 1)
+    DISCOVER_MAX_DEPTH: String(o.autoExpandDepth ?? 1),
+    DISCOVER_ALLOW_REGEX: o.autoExpandAllowRegex || '',
+    DISCOVER_DENY_REGEX: o.autoExpandDenyRegex || '',
+    // ensure the root of the run mirrors the submitted starting URL
+    PRIMARY_START_URL: (options && options.__primaryStartUrl) || '',
+    // Pass tracker blocking flag and patterns to archiver for request abort/skip
+    BLOCK_TRACKERS: (o.blockTrackers ? '1' : ''),
+    TRACKER_SKIP_PATTERNS: (o.blockTrackers ? [
+      'googletagmanager','gtm.js','google-analytics','analytics','doubleclick','facebook','connect.facebook.net','fbevents.js','pixel','hotjar','clarity','segment','fullstory','optimizely','mixpanel','datadog','newrelic','sentry','bugsnag','googlesyndication','adservice','stats','beacon'
+    ].join(',') : '')
   };
 }
 
@@ -808,9 +823,9 @@ app.post('/api/run',(req,res)=>{
         stealth: (options.stealth !== false),
         // Keep engine/headless in sync with capture settings
         engine: (options.engine || getCrawlerDefaults().engine),
-        headless: (typeof options.headless === 'boolean' ? options.headless : getCrawlerDefaults().headless)
-      }, dir, directURLs),
-      DISABLE_AUTO_ALLOW: 'true'
+        headless: (typeof options.headless === 'boolean' ? options.headless : getCrawlerDefaults().headless),
+        blockTrackers: !!options.blockTrackers
+      }, dir, directURLs)
     };
     const crawlChild=spawn('node',[CRAWLER],{ env });
     currentChildProc=crawlChild;
@@ -835,7 +850,9 @@ app.post('/api/run',(req,res)=>{
       // Ensure job exists before moving to archiver (prevents null crash)
       ensureCurrentJob(id, dir, rec ? rec.startedAt : Date.now(), 'archive');
 
-      launchArchiver(id, dir, seedsFile, options, rec?rec.startedAt:Date.now());
+      // Annotate the options with the primary submitted URL so archiver can prefer it for root redirect
+      const archiverOpts = { ...options, __primaryStartUrl: primaryForId };
+      launchArchiver(id, dir, seedsFile, archiverOpts, rec?rec.startedAt:Date.now());
     });
     return res.json({ ok:true, runId:id, dir, crawling:true, autoExpand:true });
   }
@@ -862,7 +879,7 @@ app.post('/api/run',(req,res)=>{
       engine: (crawlOptions.engine || options.engine || getCrawlerDefaults().engine),
       headless: (typeof crawlOptions.headless === 'boolean' ? crawlOptions.headless : (typeof options.headless === 'boolean' ? options.headless : getCrawlerDefaults().headless))
     };
-    const env = buildCrawlEnv(mergedCrawl, dir, startUrls);
+  const env = buildCrawlEnv({ ...mergedCrawl, blockTrackers: !!options.blockTrackers }, dir, startUrls);
     const crawlChild=spawn('node',[CRAWLER],{ env });
     currentChildProc=crawlChild;
     crawlChild.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C] '+l)));
@@ -886,7 +903,8 @@ app.post('/api/run',(req,res)=>{
       // Ensure job exists before archiver
       ensureCurrentJob(id, dir, rec ? rec.startedAt : Date.now(), 'archive');
 
-      launchArchiver(id, dir, seedsFile, options, rec?rec.startedAt:Date.now());
+      const archiverOpts = { ...options, __primaryStartUrl: primaryForId };
+      launchArchiver(id, dir, seedsFile, archiverOpts, rec?rec.startedAt:Date.now());
     });
     return res.json({ ok:true, runId:id, dir, crawling:true });
   }
@@ -902,7 +920,8 @@ app.post('/api/run',(req,res)=>{
   currentJob={ id, dir, startedAt:Date.now(), phase:'archive', totalUrls:directURLs.length };
   startingJob = false;
   push(`[JOB_START] id=${id} direct urls=${directURLs.length}`);
-  launchArchiver(id, dir, seedsFile, options, rec?rec.startedAt:Date.now());
+  const archiverOpts = { ...options, __primaryStartUrl: primaryForId };
+  launchArchiver(id, dir, seedsFile, archiverOpts, rec?rec.startedAt:Date.now());
   res.json({ ok:true, runId:id, dir, crawling:false });
 });
 
@@ -924,8 +943,7 @@ app.post('/api/delete-run',(req,res)=>{
 });
 
 /* ---------- Host controls ---------- */
-app.post('/api/host-run',(req,res)=>{
-  const { runId, port=8081, startPath='' } = req.body||{};
+function startHost(runId, port, startPath, res){
   scanExistingRuns();
   const run = runId? findRun(runId) : runs.slice(-1)[0];
   if(!run) return res.status(404).json({error:'run not found'});
@@ -935,26 +953,26 @@ app.post('/api/host-run',(req,res)=>{
   if(!p || p<1 || p>65535) return res.status(400).json({error:'invalid port'});
   if(hosts.has(p)) return res.status(409).json({error:`port ${p} already in use by runId=${hosts.get(p).runId}`});
 
-  const env={ ...process.env, ARCHIVE_ROOT: run.dir, PORT:String(p), START_PATH:startPath };
+  const env={ ...process.env, ARCHIVE_ROOT: run.dir, PORT:String(p), START_PATH:startPath||'' };
   const child=spawn('node',[HOST_SERVER],{ env });
-  
   attachChildProcessLoggers(child, 'HOST');
-  
-  child.on('exit', createJobExitHandler(p, 'HOST', (code) => {
-    hosts.delete(p);
-  }));
+  child.on('exit', createJobExitHandler(p, 'HOST', () => { hosts.delete(p); }));
   const publicUrl = inferPublicUrl(p) + (startPath || '').replace(/^\//,'');
   hosts.set(p, { child, runId: run.id, startedAt: Date.now(), root: run.dir, url: publicUrl });
   push(`[HOST_START] pid=${child.pid} port=${p} public=${publicUrl} root=${run.dir} runId=${run.id}`);
-  res.json({ ok:true, url: publicUrl, runId:run.id, pid:child.pid, port:p });
+  return res.json({ ok:true, url: publicUrl, runId:run.id, pid:child.pid, port:p });
+}
+
+app.post('/api/host-run',(req,res)=>{
+  const { runId, port=8081, startPath='' } = req.body||{};
+  return startHost(runId, port, startPath, res);
 });
 app.post('/api/host-run/auto',(req,res)=>{
   const { runId, startPath='' } = req.body||{};
   const range = Array.from({length:9}, (_,i)=>8081+i);
   const free = range.find(p=>!hosts.has(p));
   if(!free) return res.status(409).json({error:'no free port in 8081..8089'});
-  req.body.port = free;
-  app._router.handle(req, res, 'POST');
+  return startHost(runId, free, startPath, res);
 });
 app.post('/api/host-stop',(req,res)=>{
   const { port, runId } = req.body||{};
@@ -1056,11 +1074,22 @@ function analyzeRunSmart(run){
     }
     if(rec.profile==='mobile') hasMobile=true;
   }
+  function resolveDesktopFile(rec){
+    // Prefer desktop-at-root layout
+    let primary = (!rec.relPath || rec.relPath==='index')
+      ? path.join(run.dir,'index.html')
+      : path.join(run.dir,rec.relPath,'index.html');
+    if(fs.existsSync(primary)) return primary;
+    // Fallback to legacy '/desktop' subfolder
+    let legacy = (!rec.relPath || rec.relPath==='index')
+      ? path.join(run.dir,'index','desktop','index.html')
+      : path.join(run.dir,rec.relPath,'desktop','index.html');
+    if(fs.existsSync(legacy)) return legacy;
+    return null;
+  }
   manifest.filter(r=>r.profile==='desktop').slice(0,5).forEach(rec=>{
-    let file;
-    if(!rec.relPath || rec.relPath==='index') file=path.join(run.dir,'index','desktop','index.html');
-    else file=path.join(run.dir,rec.relPath,'desktop','index.html');
-    if(fs.existsSync(file)){
+    const file = resolveDesktopFile(rec);
+    if(file && fs.existsSync(file)){
       const html=fs.readFileSync(file,'utf8');
       const m=html.match(/(googletagmanager|gtag|analytics|hotjar|clarity|segment|fullstory|facebook\.net)/gi);
       if(m) analyticsHits+=m.length;

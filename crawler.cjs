@@ -99,6 +99,7 @@ const USER_AGENT = process.env.USER_AGENT ||
 // Engine/headless for parity with archiver
 const ENGINE = (process.env.ENGINE || 'chromium').toLowerCase();
 const HEADLESS = flag('HEADLESS', true);
+const DISABLE_HTTP2 = flag('DISABLE_HTTP2', false);
 
 const PROXIES_FILE  = process.env.PROXIES_FILE || '';
 const STABLE_SESSION= flag('STABLE_SESSION', true);
@@ -176,6 +177,12 @@ function normalizeURL(raw, rootHost){
 /* Browser creation (chromium only for speed; can be extended) */
 async function createBrowser(proxyObj){
   const args=['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'];
+  if (DISABLE_HTTP2) {
+    // Mitigate servers that misbehave over HTTP/2
+    args.push('--disable-http2');
+    args.push('--disable-quic');
+    args.push('--disable-features=UseChromeLayeredNetworkStack');
+  }
   const launch={ headless:HEADLESS };
   if(proxyObj){
     launch.proxy={ server:proxyObj.server, username:proxyObj.username, password:proxyObj.password };

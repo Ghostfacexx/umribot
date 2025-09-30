@@ -47,6 +47,7 @@ summary{cursor:pointer;font-weight:600}
 <section>
   <h2>Capture</h2>
   <textarea id="seedInput" rows="4" placeholder="https://www.vivacom.bg/"></textarea>
+  <div id="recentSeedsWrap" class="small"></div>
   <div class="row">
     <div class="col">
       <label class="opt"><input type="checkbox" id="optProfiles" checked>desktop,mobile</label>
@@ -130,6 +131,7 @@ summary{cursor:pointer;font-weight:600}
         <label class="opt"><input type="checkbox" id="advIncludeCO">include cross-origin</label>
         <label class="opt"><input type="checkbox" id="advRewriteHtmlAssets" checked>rewrite html assets</label>
         <label class="opt"><input type="checkbox" id="advFlattenRoot">flatten root index</label>
+        <label class="opt" title="Workaround for sites that break over HTTP/2 during crawl"><input type="checkbox" id="advDisableHttp2">disable HTTP/2 (crawl)</label>
       </div>
 
       <input id="advInternalRegex" placeholder="internal rewrite regex (optional)">
@@ -208,6 +210,7 @@ summary{cursor:pointer;font-weight:600}
     <input id="hostRun" placeholder="Select a run from table" readonly>
     <input id="hostPort" class="inlineSmall" value="8081">
     <button id="btnHost">Host</button>
+    <button id="btnOpenHost" class="secondary" disabled>Open</button>
     <button id="btnStopHost" class="secondary" disabled>Stop</button>
   </div>
   <pre id="hostLog"></pre>

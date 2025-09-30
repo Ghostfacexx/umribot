@@ -41,6 +41,29 @@
       return { ok: true, raw: text };
     }
   }
+  // ---------- Recent seeds (persist last 5 in localStorage)
+  const RECENT_KEY = 'archiver_recent_seeds_v1';
+  function getRecentSeeds(){
+    try{ const arr=JSON.parse(localStorage.getItem(RECENT_KEY)||'[]'); return Array.isArray(arr)?arr:[]; }catch{ return []; }
+  }
+  function pushRecentSeed(url){
+    if(!url) return; const now=url.trim(); if(!now) return;
+    const arr=getRecentSeeds().filter(x=>x!==now);
+    arr.unshift(now);
+    while(arr.length>5) arr.pop();
+    try{ localStorage.setItem(RECENT_KEY, JSON.stringify(arr)); }catch{}
+    renderRecentSeeds();
+  }
+  function renderRecentSeeds(){
+    const wrap=document.getElementById('recentSeedsWrap'); if(!wrap) return;
+    const arr=getRecentSeeds();
+    if(!arr.length){ wrap.innerHTML=''; return; }
+    wrap.innerHTML = 'Recent: ' + arr.map(u=>`<a href="#" data-seed="${encodeURIComponent(u)}" class="zipLink">${u}</a>`).join(' | ');
+    wrap.querySelectorAll('a[data-seed]').forEach(a=>{
+      a.onclick=(e)=>{ e.preventDefault(); const val=decodeURIComponent(a.getAttribute('data-seed')||''); const t=id('seedInput'); if(t){ t.value=val; t.focus(); }};
+    });
+  }
+
 
   async function jsonMaybe(r){
     // Safe parser for places still using fetch(...).then(jsonMaybe)
@@ -132,6 +155,8 @@
     opts.includeCrossOrigin  = asBool(id('advIncludeCO'));
     opts.rewriteHtmlAssets   = asBool(id('advRewriteHtmlAssets'));
     opts.flattenRoot         = asBool(id('advFlattenRoot'));
+  // Crawl-only/auto-expand helper flag for tricky HTTP/2 sites
+  opts.disableHttp2        = asBool(id('advDisableHttp2'));
 
     const internalRx = asStr(id('advInternalRegex')); if(internalRx) opts.internalRewriteRegex = internalRx;
     const domainFilter = asStr(id('advDomainFilter')); if(domainFilter) opts.domainFilter = domainFilter;
@@ -160,6 +185,8 @@
   id('btnStart').onclick = ()=>{
     const urls = asStr(id('seedInput')).split(/\n+/).filter(Boolean);
     if(!urls.length){ alert('Enter at least one URL'); return; }
+    // store first url in recent
+    pushRecentSeed(urls[0]);
     const options = buildOptions();
     id('btnStart').disabled=true; id('btnStop').disabled=false;
     logCap('POST /api/run start');
@@ -179,6 +206,8 @@
   id('btnStartCrawlFirst').onclick = ()=>{
     const startUrls = asStr(id('crawlSeeds')).split(/\n+/).filter(Boolean).join('\n');
     if(!startUrls){ alert('Enter crawl seeds'); return; }
+    // store first seed
+    pushRecentSeed(startUrls.split(/\n/)[0]);
     const options = buildOptions();
     const crawlOptions = {
       maxDepth:   asNum(id('crawlDepth'),3),
@@ -187,7 +216,8 @@
       sameHostOnly:  asBool(id('crawlSameHost')),
       includeSubdomains: asBool(id('crawlSubs')),
       allowRegex: asStr(id('crawlAllow')),
-      denyRegex:  asStr(id('crawlDeny'))
+      denyRegex:  asStr(id('crawlDeny')),
+      disableHttp2: asBool(id('advDisableHttp2'))
     };
     id('btnStart').disabled=true; id('btnStop').disabled=false;
     logCap('POST /api/run (crawlFirst)');
@@ -233,7 +263,8 @@
         logHost('Hosting '+j.runId+' @ '+j.url);
         id('btnStopHost').disabled=false;
         const openBtn = id('btnOpenHost');
-        if(openBtn){ openBtn.disabled=false; openBtn.dataset.url = j.url; }
+  if(openBtn){ openBtn.disabled=false; openBtn.dataset.url = j.url; }
+  // Auto-open in a new tab/window (Codespaces will open a forwarded URL)
         try { if(j.url) window.open(j.url, '_blank', 'noopener'); } catch {}
       }).catch(e=>logHost('Host exception '+e.message));
   };
@@ -329,5 +360,6 @@
     }catch(e){ logCap('help load err '+e.message); }
   }).catch(e=>logCap('settings err '+e.message));
 
+  renderRecentSeeds();
   loadRuns(); loadPlatforms(); refreshJobs(); logCap('Init complete (advanced)');
 })();

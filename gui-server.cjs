@@ -199,7 +199,8 @@ function buildCrawlEnv(options, dir, startUrls) {
     NAV_TIMEOUT: String(o.navTimeout ?? getCrawlerDefaults().navTimeout),
     PAGE_TIMEOUT: String(o.pageTimeout ?? getCrawlerDefaults().pageTimeout),
     ENGINE: (o.engine || getCrawlerDefaults().engine),
-    HEADLESS: (o.headless===false?'false':'true')
+    HEADLESS: (o.headless===false?'false':'true'),
+    DISABLE_HTTP2: (o.disableHttp2?'true':'false')
   };
 }
 
@@ -737,7 +738,8 @@ app.post('/api/run',(req,res)=>{
         denyRegex: options.autoExpandDenyRegex,
         waitAfterLoad: crawlOptions.waitAfterLoad,
         navTimeout: crawlOptions.navTimeout,
-        pageTimeout: crawlOptions.pageTimeout
+        pageTimeout: crawlOptions.pageTimeout,
+        disableHttp2: (options.disableHttp2 || crawlOptions.disableHttp2)
       }, dir, directURLs),
       DISABLE_AUTO_ALLOW: 'true'
     };
@@ -776,7 +778,7 @@ app.post('/api/run',(req,res)=>{
     currentJob={ id, dir, startedAt:Date.now(), phase:'crawl', totalUrls:0 };
     startingJob = false;
     push(`[JOB_START] id=${id} crawlFirst=true startSeeds=${startUrls.length}`);
-    const env = buildCrawlEnv(crawlOptions, dir, startUrls);
+  const env = buildCrawlEnv(crawlOptions, dir, startUrls);
     const crawlChild=spawn('node',[CRAWLER],{ env });
     currentChildProc=crawlChild;
     crawlChild.stdout.on('data',d=>d.toString().split(/\r?\n/).filter(Boolean).forEach(l=>push('[C] '+l)));

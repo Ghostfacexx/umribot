@@ -88,6 +88,11 @@ const PAGE_WAIT_UNTIL=(process.env.PAGE_WAIT_UNTIL||'domcontentloaded');
 let QUIET_MILLIS=envN('QUIET_MILLIS',1500);
 let MAX_CAPTURE_MS=envN('MAX_CAPTURE_MS',20000);
 
+/* Optional internal discovery (no external crawler) */
+const DISCOVER_IN_ARCHIVER = envB('DISCOVER_IN_ARCHIVER', false);
+const DISCOVER_MAX_PAGES = envN('DISCOVER_MAX_PAGES', 50);
+const DISCOVER_MAX_DEPTH = envN('DISCOVER_MAX_DEPTH', 1);
+
 /* Same-site ENV */
 const SAME_SITE_MODE=(process.env.SAME_SITE_MODE||'etld').toLowerCase(); // 'exact' | 'subdomains' | 'etld'
 const INTERNAL_HOSTS_REGEX=(process.env.INTERNAL_HOSTS_REGEX||'');
@@ -1036,13 +1041,123 @@ function ensureRootIndex(outDir, manifest){
   ensureDir(outputRoot);
   console.log(`ARCHIVER start: urls=${seeds.length} engine=${ENGINE} concurrency=${CONCURRENCY} profiles=${PROFILES_LIST.join(',')}`);
 
+  // Internal discovery (BFS) before capture when enabled
+  let finalSeeds = seeds.slice();
+  if (DISCOVER_IN_ARCHIVER) {
+    console.log(`[DISCOVER] start inside archiver maxPages=${DISCOVER_MAX_PAGES} maxDepth=${DISCOVER_MAX_DEPTH}`);
+    const crawlDir = path.join(outputRoot, '_crawl');
+    ensureDir(crawlDir);
+    const visited = new Set();
+    const queue = [];
+    const depths = new Map();
+    const pushQ = (u, d) => {
+      if (!u) return;
+      if (visited.has(u)) return;
+      if (d > DISCOVER_MAX_DEPTH) return;
+      visited.add(u);
+      depths.set(u, d);
+      queue.push({ url: u, depth: d });
+    };
+    for (const s of seeds) pushQ(s, 0);
+
+    const proxy = nextProxy(0);
+    let browser, context, page;
+    try {
+      browser = await createBrowser(proxy);
+      const prof = resolveProfile('desktop');
+      context = await browser.newContext({
+        userAgent: chooseUA(prof),
+        viewport: prof.viewport,
+        deviceScaleFactor: prof.deviceScaleFactor||1,
+        isMobile: false,
+        hasTouch: false,
+        locale: 'en-US'
+      });
+      if (STEALTH) { try { await applyStealth(context); } catch {} }
+      page = await context.newPage();
+      page.setDefaultNavigationTimeout(NAV_TIMEOUT);
+
+      const discovered = [];
+      while (queue.length && discovered.length < DISCOVER_MAX_PAGES) {
+        const { url, depth } = queue.shift();
+        // Navigate with fallback to commit if needed
+        let navigated = false;
+        try {
+          await page.goto(url, { waitUntil: PAGE_WAIT_UNTIL, timeout: NAV_TIMEOUT });
+          navigated = true;
+        } catch (e) {
+          console.log(`[DISCOVER_WARN] goto (${PAGE_WAIT_UNTIL}) failed ${e.message}`);
+          try {
+            await page.goto(url, { waitUntil: 'commit', timeout: Math.min(15000, NAV_TIMEOUT) });
+            navigated = true;
+            try { await page.waitForLoadState('domcontentloaded', { timeout: Math.min(10000, NAV_TIMEOUT) }); } catch {}
+          } catch (e2) {
+            console.log('[DISCOVER_ERR]', e2.message);
+          }
+        }
+
+        // Consent attempt to reveal links
+        if (navigated) {
+          try { await attemptConsent(page); } catch {}
+          try { await page.waitForTimeout(300); } catch {}
+        }
+
+        // Extract anchors (DOM if navigated, fallback to regex from page.content())
+        let hrefs = [];
+        try {
+          if (navigated) {
+            try { await page.waitForSelector('a[href]', { timeout: 5000 }); } catch {}
+            hrefs = await page.$$eval('a[href]', as => as.map(a => a.getAttribute('href')).filter(Boolean));
+          }
+        } catch {}
+        if (!hrefs.length) {
+          try {
+            const html = navigated ? await page.content() : '';
+            const re = /href\s*=\s*([\"'])(.*?)\1/gi;
+            let m; while ((m = re.exec(html))) { hrefs.push(m[2]); if (hrefs.length > 2000) break; }
+          } catch {}
+        }
+
+        // Normalize and enqueue
+        const baseOrigin = (()=>{ try { return new URL(url).origin; } catch { return ''; } })();
+        const normed = [];
+        for (const raw of hrefs) {
+          let abs; try { abs = new URL(raw, baseOrigin).toString(); } catch { continue; }
+          // strip hash
+          try { const u = new URL(abs); u.hash=''; abs=u.toString(); } catch {}
+          // same-site check
+          try { if (!isSameSite(abs)) continue; } catch {}
+          normed.push(abs);
+        }
+        // Record and expand next depth
+        discovered.push(url);
+        if (depth < DISCOVER_MAX_DEPTH) {
+          for (const n of normed) {
+            if (discovered.length + queue.length >= DISCOVER_MAX_PAGES) break;
+            if (!visited.has(n)) pushQ(n, depth + 1);
+          }
+        }
+        console.log(`[DISCOVER] d=${depth} url=${url} +links=${normed.length} total=${discovered.length}`);
+      }
+
+      finalSeeds = discovered.slice(0, DISCOVER_MAX_PAGES);
+      // Persist for transparency
+      try { fs.writeFileSync(path.join(crawlDir, 'urls.txt'), finalSeeds.join('\n') + '\n', 'utf8'); } catch {}
+      console.log(`[DISCOVER_DONE] seeds=${finalSeeds.length}`);
+      await browser.close();
+    } catch (e) {
+      console.log('[DISCOVER_FATAL]', e.message);
+      try { if (browser) await browser.close(); } catch {}
+    }
+  }
+
   const manifest=[];
   const partial=path.join(outputRoot,'manifest.partial.jsonl');
   let idx=0;
   async function worker(wid){
     while(true){
-      if(idx>=seeds.length) break;
-      const url=seeds[idx++];
+      if(idx>=finalSeeds.length) break;
+      const url=finalSeeds[idx++];
       console.log(`[W${wid}] (${idx}/${seeds.length}) ${url}`);
       const recs=await capture(idx,url,outputRoot);
       for(const r of recs){
@@ -1058,7 +1173,7 @@ function ensureRootIndex(outDir, manifest){
   fs.writeFileSync(manifestPath, JSON.stringify(manifest,null,2));
   const failures=manifest.filter(m=>!String(m.status||'').startsWith('ok'));
   const totalAssets=[...new Set(manifest.filter(m=>m.profile==='desktop').map(m=>m.assets))].reduce((a,b)=>a+b,0);
-  console.log(`DONE pages=${seeds.length} profiles=${PROFILES_LIST.length} records=${manifest.length} failures=${failures.length} (desktop assets approx=${totalAssets})`);
+  console.log(`DONE pages=${finalSeeds.length} profiles=${PROFILES_LIST.length} records=${manifest.length} failures=${failures.length} (desktop assets approx=${totalAssets})`);
 
   // Guarantee a root index.html exists and redirects to the captured page
   ensureRootIndex(outputRoot, manifest);

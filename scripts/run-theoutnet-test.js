@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 const http = require('http');
 
+const ENGINE = process.env.TEST_ENGINE || 'chromium';
+const WAIT_UNTIL = process.env.TEST_WAIT_UNTIL || 'load';
+
 const payload = {
   urlsText: 'https://www.theoutnet.com/en-us/shop/',
   options: {
     profiles: 'desktop',
-    engine: 'chromium',
+    engine: ENGINE,
     concurrency: 1,
-    headless: true,
-    pageWaitUntil: 'load',
+  headless: true,
+  pageWaitUntil: WAIT_UNTIL,
     waitExtra: 1500,
     quietMillis: 2000,
     navTimeout: 60000,

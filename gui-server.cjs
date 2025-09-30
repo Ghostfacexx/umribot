@@ -302,7 +302,11 @@ function buildArchiverEnv(options){
     INTERNAL_HOSTS_REGEX: o.internalHostsRegex || d.internalHostsRegex,
     TARGET_PLATFORM: (o.targetPlatform || d.targetPlatform),
     // network hardening
-    DISABLE_HTTP2: (o.disableHttp2 ? 'true' : 'false')
+    DISABLE_HTTP2: (o.disableHttp2 ? 'true' : 'false'),
+    // optional internal discovery mode (replace external crawler)
+    DISCOVER_IN_ARCHIVER: (o.discoverInArchiver ? 'true' : 'false'),
+    DISCOVER_MAX_PAGES: String(o.autoExpandMaxPages ?? 50),
+    DISCOVER_MAX_DEPTH: String(o.autoExpandDepth ?? 1)
   };
 }
 

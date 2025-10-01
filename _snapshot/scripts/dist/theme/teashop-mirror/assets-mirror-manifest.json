@@ -1,0 +1,11 @@
+{
+  "css": [
+    "assets/mirror/teashop.bg/catalog/view/javascript/bootstrap/css/bootstrap.min.css",
+    "assets/mirror/teashop.bg/catalog/view/javascript/jquery/owl-carousel/owl.carousel.css",
+    "assets/mirror/teashop.bg/catalog/view/javascript/font-awesome/css/font-awesome.min.css",
+    "assets/mirror/fonts.googleapis.com/css",
+    "assets/mirror/teashop.bg/catalog/view/theme/default/stylesheet/stylesheet.css",
+    "assets/mirror/teashop.bg/catalog/view/javascript/jquery/owl-carousel/owl.transitions.css",
+    "assets/mirror/teashop.bg/catalog/view/javascript/jquery/datetimepicker/bootstrap-datetimepicker.min.css"
+  ]
+}

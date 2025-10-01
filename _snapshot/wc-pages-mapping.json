@@ -1,0 +1,20 @@
+{
+  "default": {
+    "page": {
+      "title": "meta[property='og:title']@content || #content h1 || h1.page-title || .breadcrumb li:last-child a@text || .breadcrumb li:last-child@text || h1",
+      "content_html": "#content || #content .row || .container #content || main .entry-content || article .entry-content || .post-content || .content || body",
+      "excerpt_html": ".intro || .lead || .summary",
+      "images": "meta[property='og:image']@content || #content img@src || .entry-content img@src || .content img@src"
+    }
+  },
+  "byDomain": {
+    "teashop.bg": {
+      "page": {
+        "title": "meta[property='og:title']@content || #content h1 || .breadcrumb li:last-child a@text || .breadcrumb li:last-child@text",
+        "content_html": "#content .row || #content || .container || body",
+        "excerpt_html": ".lead || .intro",
+        "images": "meta[property='og:image']@content || #content img@src"
+      }
+    }
+  }
+}

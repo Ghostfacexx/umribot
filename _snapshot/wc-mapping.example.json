@@ -1,0 +1,35 @@
+{
+  "default": {
+    "product": {
+      "name": "meta[property='og:title']@content || h1.product-title || h1[itemprop='name'] || h1",
+      "sku": ".product-sku || [itemprop='sku']@content || [data-sku]@data-sku",
+      "price_regular": ".price .amount || [itemprop='price']@content || meta[property='product:price:amount']@content",
+      "price_sale": ".price .sale || .price .onsale || meta[property='product:sale_price:amount']@content",
+      "description_html": "#description || .product-description || [itemprop='description']",
+      "short_description_html": ".short-description || .summary p:first-of-type",
+      "categories": ".breadcrumb a || nav.breadcrumb a || .product-categories a",
+      "tags": ".product-tags a || .tags a",
+      "images": ".product-gallery img@src || .woocommerce-product-gallery__image img@src || meta[property='og:image']@content",
+      "in_stock": ".stock.in-stock || [data-stock-status='in-stock']",
+      "attributes": [
+        { "name": "Color", "selector": ".swatch-color .option || .color .option || [data-attribute_name='attribute_pa_color'] .option", "attr": "text" },
+        { "name": "Size", "selector": ".size .option || .pa_size .option || [data-attribute_name='attribute_pa_size'] .option", "attr": "text" }
+      ]
+    }
+  },
+  "byDomain": {
+    "www.example.com": {
+      "product": {
+        "name": "h1.product-title",
+        "sku": ".sku",
+        "price_regular": ".price .regular",
+        "price_sale": ".price .sale",
+        "description_html": "#description",
+        "short_description_html": ".short-description",
+        "categories": ".breadcrumb a",
+        "tags": ".product-tags a",
+        "images": ".gallery img@src"
+      }
+    }
+  }
+}

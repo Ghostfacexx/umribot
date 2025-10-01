@@ -1,0 +1,27 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log
+pnpm-lock.yaml
+
+# Runtime / outputs
+out/
+downloaded_pages/
+public/index.backup.*.html
+*.wxr
+*.log
+*.tmp
+*.cache
+
+# Archives / heavy artifacts
+*.zip
+*.tar.gz
+hosting_packages/
+
+# Local credentials / data
+cookies.txt
+proxies.json
+
+# System
+.DS_Store
+Thumbs.db

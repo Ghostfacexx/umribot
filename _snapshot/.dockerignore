@@ -1,0 +1,12 @@
+node_modules
+out
+downloaded_pages
+public/index.backup.*.html
+*.wxr
+*.log
+*.zip
+*.tar.gz
+hosting_packages
+.vscode
+.git
+.gitignore

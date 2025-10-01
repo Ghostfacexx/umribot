@@ -1,0 +1,88 @@
+{"path":"anypage-to-wxr.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"archive_outnet_assets_fix.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"archive_outnet_assets.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"archive.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"archiver-consent-bypass.cjs","ast":null,"error":"Line 14: Unexpected token {"}
+{"path":"archiver-lib.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"archiver.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"bin/export-run.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"bin/products-only-universal.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"bin/products-scrape.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"bin/woocommerce-products-only.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"consent-popup-adaptive.js","ast":null,"error":"Line 14: Unexpected token {"}
+{"path":"consent-probe.cjs","ast":null,"error":"Line 22: Unexpected token {"}
+{"path":"crawler.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"diagnose_one_proxy.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"eslint.config.mjs","ast":"a1de48b9eb96c3d3a80bf307ef51adcc6cf46eccb60333787b9a234d0ec88e83"}
+{"path":"export-wxr.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"gui-server.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"hosting-prepare.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"lib/browser.js","ast":null,"error":"Line 97: Unexpected token {"}
+{"path":"lib/cdp-client.js","ast":null,"error":"Line 199: Unexpected token {"}
+{"path":"lib/consent-automation.cjs","ast":null,"error":"Line 87: Unexpected token ..."}
+{"path":"lib/constants.js","ast":"757d14b09e56bc665ef4177164efeae343957c9c6753f69bbccc9165c9d85689"}
+{"path":"lib/deno-polyfill.js","ast":null,"error":"Line 70: Unexpected reserved word"}
+{"path":"lib/discovery/id-enum.cjs","ast":"8fe6d70289f0c0f7a109d6e74f87d625501468f729aae7ea48fd73ae64604142"}
+{"path":"lib/discovery/patterns.cjs","ast":null,"error":"Line 11: Unexpected token {"}
+{"path":"lib/discovery/sitemap.cjs","ast":null,"error":"Line 15: Unexpected token {"}
+{"path":"lib/domain.cjs","ast":null,"error":"Line 6: Unexpected token {"}
+{"path":"lib/hostingPrep.cjs","ast":null,"error":"Line 30: Unexpected token {"}
+{"path":"lib/html-bake-css.cjs","ast":null,"error":"Line 6: Unexpected token {"}
+{"path":"lib/http-fetch.cjs","ast":null,"error":"Line 52: Unexpected token {"}
+{"path":"lib/prep.cjs","ast":null,"error":"Line 16: Unexpected token {"}
+{"path":"lib/product-extract.cjs","ast":null,"error":"Line 24: Unexpected token {"}
+{"path":"lib/run-id.cjs","ast":null,"error":"Line 68: Unexpected token {"}
+{"path":"lib/single-file-bundle.js","ast":"7e00f47190fa1367a315cd0e9d5b4fdfa127ae29d1fec23fc26ee9eaf0092a52"}
+{"path":"lib/single-file-script.js","ast":"62b7ee912395dce9cd1b7d8d78ab0d273b5223464a4719835e89eff4c507562f"}
+{"path":"lib/version.js","ast":"016f22fe6f136ce0445c511adb163cdaa6ee96535106c8765813603f8a128b6e"}
+{"path":"mirror.cjs","ast":"1fe2ca3112ac5d2c4e78c9b6feeab9a81c3cb4234e9055624a3552c4bd498f26"}
+{"path":"mirror2.cjs","ast":"35e67e32cb4cda6254f1f4e409a7d1ee763b6df18f3e58dbaf7f1e1376bb1f08"}
+{"path":"options.js","ast":null,"error":"Line 200: Unexpected token ..."}
+{"path":"platform/exporter.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"platform/exporters/shopify-liquid.cjs","ast":null,"error":"Line 34: Unexpected token ."}
+{"path":"platform/exporters/woocommerce.cjs","ast":null,"error":"Line 30: Unexpected token ."}
+{"path":"platform/parse-html.cjs","ast":null,"error":"Line 5: Unexpected token {"}
+{"path":"platform/schema.cjs","ast":"e0a53a204295d3370863350184854caa74ab4a7430b9a92485594b52e2770594"}
+{"path":"public/app.js","ast":null,"error":"Line 16: Unexpected token ."}
+{"path":"public/hosting-pane.js","ast":null,"error":"Line 113: Unexpected token ."}
+{"path":"public/js/delete-run-ui.js","ast":null,"error":"Line 87: Unexpected token {"}
+{"path":"public/js/export-ui.js","ast":null,"error":"Line 19: Unexpected token {"}
+{"path":"public/js/export.js","ast":"f6f0a7b2f35732df6a6379b0c6f8659850fe33510018fff6550f72d3bfad4204"}
+{"path":"public/js/prep-run.js","ast":"c78404e46ae6aa26eca4353eead51f5da5d3e07e7face4de3610efaebec1708b"}
+{"path":"public/js/prime-products.js","ast":null,"error":"Line 5: Unexpected token ."}
+{"path":"public/js/products-only-ui.js","ast":null,"error":"Line 42: Unexpected token ."}
+{"path":"public/js/target-platform.js","ast":null,"error":"Line 6: Unexpected token {"}
+{"path":"public/js/woo-fast-preset.js","ast":null,"error":"Line 26: Unexpected token {"}
+{"path":"scripts/anypage-to-wxr.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/archiver.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/build-product-catalog.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/build-product-map.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/catalog-to-csv.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/deploy-pages-rest.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/fix-css-urls.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/owl.carousel.min.js","ast":"bbc64a02d723b86204d126f588c0c2f53fff591c9c4641ef21aca3c9d0b5f896"}
+{"path":"scripts/wxr-from-urls.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"scripts/wxr-to-pages-json.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"seo-helper.cjs","ast":null,"error":"Line 69: Unexpected token ..."}
+{"path":"seo-orchestrator.cjs","ast":null,"error":"Line 7: Unexpected token {"}
+{"path":"seo-tools-client.cjs","ast":null,"error":"Line 6: Unexpected token {"}
+{"path":"serve-archive.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"server.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"server/products-only-api.cjs","ast":null,"error":"Line 9: Unexpected token ..."}
+{"path":"server/snippets/add-page-map-route.js","ast":"5493c0e226d3381c66c175cef30ab7cc76325558415b6dcab2105f3b9faa1a2b"}
+{"path":"single-file-cli-api.js","ast":null,"error":"Line 141: Unexpected token {"}
+{"path":"single-file-launcher.js","ast":null,"error":"Line 83: Unexpected token {"}
+{"path":"single-file-node.js","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"sw.js","ast":"fb7f8314325832c475c0fdd0f5c4486ee69eac8549070ea74f09f210e733553e"}
+{"path":"tools/ast-hash.js","ast":"71142b6708794b085bfb8e51df6f5bba18c77d9ed07db2ff4c6116655a2002dd"}
+{"path":"tools/page-map.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"tools/scan-hosts.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"tools/tools/wxr-split.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"tools/wc-export-products-from-manifest.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"tools/wxr-split.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"transform.cjs","ast":null,"error":"Line 151: Unexpected token {"}
+{"path":"validate-archive.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"wc-export-pages-wxr.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"wc-export-products-csv.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"wc-export-wxr.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}
+{"path":"wc-export.cjs","ast":null,"error":"Line 1: Unexpected token ILLEGAL"}

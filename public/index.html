@@ -266,14 +266,17 @@ summary{cursor:pointer;font-weight:600}
     </div>
     <div class="flex" style="margin-top:.5rem">
       <button id="btnPlanSelect">Add →</button>
+      <button id="btnPlanSelectAll" class="secondary" title="Select all available URLs">Select All</button>
       <button id="btnPlanRemove" class="secondary">← Remove</button>
       <button id="btnPlanUp" class="secondary">Move Up</button>
       <button id="btnPlanDown" class="secondary">Move Down</button>
+      <button id="btnPlanStart" title="Start capture using the Selected list as seeds">Start Capture</button>
       <button id="btnPlanSave" class="secondary">Save Curated</button>
       <button id="btnPlanExport" class="secondary">Export JSON</button>
       <input type="file" id="planImportFile" style="display:none" accept="application/json">
       <button id="btnPlanImport" class="secondary">Import JSON</button>
     </div>
+    <div class="small" id="planStatus" style="margin-top:.25rem;color:#444"></div>
   </div>
 </section>
 

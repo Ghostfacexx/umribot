@@ -25,6 +25,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const https = require('https');
 const cheerio = require('cheerio');
 const { buildSameSiteChecker, getETLDPlusOne } = require('./lib/domain.cjs');
+const cp = require('child_process');
 
 /* ------------ Utility ------------ */
 function envB(name, def=false){ const v=process.env[name]; if(v==null) return def; return /^(1|true|yes|on)$/i.test(v); }
@@ -97,6 +98,19 @@ let TRACKER_RX = null; try{
 }catch{ TRACKER_RX = null; }
 let QUIET_MILLIS=envN('QUIET_MILLIS',1500);
 let MAX_CAPTURE_MS=envN('MAX_CAPTURE_MS',20000);
+
+/* Payment map auto-generation (for host-time payment link rewrites) */
+const PAYMENT_MAP_AUTO = envB('PAYMENT_MAP_AUTO', true);
+const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || 'paypal';
+const PAYMENT_TARGET = process.env.PAYMENT_TARGET || '_blank';
+const PAYMENT_PLACEHOLDER = process.env.PAYMENT_PLACEHOLDER || 'paypal:HOSTED_BUTTON_ID_PLACEHOLDER';
+// Collected product IDs during capture: id -> { url, title }
+const FOUND_PRODUCT_IDS = new Map();
+
+/* Commerce flow discovery (external tool) */
+const COMMERCE_FLOW = envB('COMMERCE_FLOW', false);
+const COMMERCE_FLOW_MODE = process.env.COMMERCE_FLOW_MODE || 'once'; // 'once' | 'off'
+const COMMERCE_PLATFORM_HINT = process.env.COMMERCE_PLATFORM_HINT || 'opencart';
 
 // Pages are saved under per-profile subfolders (e.g., rel/desktop/index.html, rel/mobile/index.html)
 
@@ -1002,6 +1016,23 @@ async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
 
     let html=await page.content();
 
+    // Record product IDs for auto payment-map (OpenCart and Woo patterns)
+    try{
+      const u = new URL(page.url());
+      const route = (u.searchParams.get('route')||'').toLowerCase();
+      let pid = '';
+      if (/product\/product/.test(route)) pid = String(u.searchParams.get('product_id')||'');
+      if (!pid) pid = String(u.searchParams.get('add-to-cart')||'');
+      if (pid) {
+        let title='';
+        try{
+          const $ = cheerio.load(html,{decodeEntities:false});
+          title = $('#content h1').first().text().trim() || $('h1').first().text().trim() || '';
+        }catch{}
+        if (!FOUND_PRODUCT_IDS.has(pid)) FOUND_PRODUCT_IDS.set(pid, { url: page.url(), title });
+      }
+    }catch{}
+
     // Inject mobile meta viewport if mobile & missing
     if(profile.isMobile && INJECT_MOBILE_META){
       try{
@@ -1141,6 +1172,38 @@ function ensureRootIndex(outDir, manifest){
     console.log('[ROOT_INDEX] created ->', target);
   } catch (e) {
     console.warn('[ROOT_INDEX_ERR]', e.message);
+  }
+}
+
+/* ------------ Payment map writer ------------ */
+function writeAutoPaymentMap(outDir){
+  if (!PAYMENT_MAP_AUTO) return;
+  if (!FOUND_PRODUCT_IDS.size) return;
+  const file = path.join(outDir, '_payment-map.json');
+  let obj = { provider: PAYMENT_PROVIDER, target: PAYMENT_TARGET, map: {} };
+  try{
+    if (fs.existsSync(file)){
+      const current = JSON.parse(fs.readFileSync(file,'utf8')) || {};
+      obj.provider = current.provider || obj.provider;
+      obj.target = current.target || obj.target;
+      obj.map = current.map || {};
+    }
+  }catch{}
+  let added = 0;
+  for (const [pid] of FOUND_PRODUCT_IDS){
+    if (!pid) continue;
+    if (!obj.map[pid] && !obj.map['product_id_'+pid]){
+      obj.map[pid] = PAYMENT_PLACEHOLDER;
+      added++;
+    }
+  }
+  if (added>0){
+    try{
+      fs.writeFileSync(file, JSON.stringify(obj,null,2));
+      console.log('[PAYMENT_MAP]', 'written', path.relative(outDir,file), 'added', added, 'totalKeys', Object.keys(obj.map||{}).length);
+    }catch(e){ console.warn('[PAYMENT_MAP_ERR]', e.message); }
+  } else {
+    console.log('[PAYMENT_MAP]', 'no new products to add');
   }
 }
 
@@ -1284,6 +1347,33 @@ function ensureRootIndex(outDir, manifest){
     }
   }
 
+  // Optional: run external commerce flow to discover product->cart->checkout URLs and add to seeds
+  if (COMMERCE_FLOW && COMMERCE_FLOW_MODE !== 'off') {
+    try {
+      const tool = path.join(__dirname, 'tools', 'commerce-flow.cjs');
+      const baseStart = (PRIMARY_START_URL || finalSeeds[0] || seeds[0] || '').trim();
+      if (fs.existsSync(tool) && baseStart) {
+        const outDir = path.join(outputRoot, '_commerce');
+        ensureDir(outDir);
+        const args = [tool, '--start', baseStart, '--platform', COMMERCE_PLATFORM_HINT, '--out', outDir, '--mode', COMMERCE_FLOW_MODE];
+        console.log('[COMMERCE_FLOW] run', 'node', path.relative(process.cwd(), tool), args.slice(1).join(' '));
+        cp.execFileSync(process.execPath, args, { stdio: 'inherit' });
+        const f = path.join(outDir, 'urls.txt');
+        if (fs.existsSync(f)) {
+          const extra = fs.readFileSync(f, 'utf8').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+          if (extra.length) {
+            const set = new Set(finalSeeds);
+            for (const u of extra) set.add(u);
+            finalSeeds = Array.from(set);
+            console.log('[COMMERCE_FLOW] merged URLs', extra.length, 'totalSeeds', finalSeeds.length);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[COMMERCE_FLOW_ERR]', e.message);
+    }
+  }
+
   const manifest=[];
   const partial=path.join(outputRoot,'manifest.partial.jsonl');
   let idx=0;
@@ -1310,6 +1400,9 @@ function ensureRootIndex(outDir, manifest){
 
   // Guarantee a root index.html exists and redirects to the captured page
   ensureRootIndex(outputRoot, manifest);
+
+  // Write/merge _payment-map.json with placeholders for discovered product IDs
+  try { writeAutoPaymentMap(outputRoot); } catch {}
 
   if(failures.length){
     console.log('Sample failures:');

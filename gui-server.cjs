@@ -975,21 +975,23 @@ app.post('/api/run',(req,res)=>{
   }
   let seedsFile = path.join(dir,'seeds.txt');
   // If explicit planSeeds array provided, write and use it directly
-  if(Array.isArray(options.planSeeds) && options.planSeeds.length){
-    try{ fs.writeFileSync(seedsFile, options.planSeeds.join('\n')+'\n','utf8'); }
-    catch(e){ return res.status(500).json({ error:'failed to write planSeeds: '+e.message }); }
-  } else if(options.planFirst){
-  // Plan-first: generate explicit seeds via smart-map
-  if(options.planFirst){
-    try{
+  if (Array.isArray(options.planSeeds) && options.planSeeds.length) {
+    try {
+      fs.writeFileSync(seedsFile, options.planSeeds.join('\n')+'\n','utf8');
+    } catch (e) {
+      return res.status(500).json({ error:'failed to write planSeeds: '+e.message });
+    }
+  } else if (options.planFirst) {
+    // Plan-first: generate explicit seeds via smart-map
+    try {
       // Prepare env for mapper
       const env = { ...process.env };
       const startUrls = directURLs.length ? directURLs : ((crawlOptions.startUrlsText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean));
       env.START_URLS = (startUrls||[]).join('\n');
       env.SAME_HOST_ONLY = (options.autoExpandSameHostOnly===false ? 'false' : 'true');
       env.INCLUDE_SUBDOMAINS = (options.autoExpandSubdomains===false ? 'false' : 'true');
-      if(options.autoExpandAllowRegex) env.ALLOW_REGEX = options.autoExpandAllowRegex;
-      if(options.autoExpandDenyRegex) env.DENY_REGEX = options.autoExpandDenyRegex;
+      if (options.autoExpandAllowRegex) env.ALLOW_REGEX = options.autoExpandAllowRegex;
+      if (options.autoExpandDenyRegex) env.DENY_REGEX = options.autoExpandDenyRegex;
       // Defaults suitable for e-com
       env.MAX_CATEGORIES = String(80);
       env.MAX_CATEGORY_PAGES = String(5);
@@ -997,34 +999,37 @@ app.post('/api/run',(req,res)=>{
       // Run mapper synchronously
       push(`[PLAN_START] id=${id} urls=${(env.START_URLS||'').split(/\n/).length}`);
       const out = require('child_process').spawnSync(process.execPath, [SMART_MAP, dir], { env, encoding:'utf8' });
-      if(out.status !== 0){
-        push('[PLAN_ERR] '+(out.stderr||out.stdout||'mapper failed'));
+      if (out.status !== 0) {
+        push('[PLAN_ERR] ' + (out.stderr || out.stdout || 'mapper failed'));
         // Fallback: if directURLs exist, write them; otherwise abort
-        if(directURLs.length){ fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8'); }
-        else {
+        if (directURLs.length) {
+          fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8');
+        } else {
           startingJob = false; currentJob=null; currentChildProc=null;
           return res.status(500).json({ error:'Plan-first mapper failed and no direct URLs fallback' });
         }
       } else {
-        push('[PLAN_DONE] '+(out.stdout||'').trim().split(/\r?\n/).slice(-1)[0]);
+        push('[PLAN_DONE] ' + (out.stdout||'').trim().split(/\r?\n/).slice(-1)[0]);
         const planned = path.join(dir,'_plan','seeds.txt');
-        if(fs.existsSync(planned)){
+        if (fs.existsSync(planned)) {
           seedsFile = planned;
         } else {
           // Fallback to direct
-          if(directURLs.length){ fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8'); }
-          else {
+          if (directURLs.length) {
+            fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8');
+          } else {
             startingJob = false; currentJob=null; currentChildProc=null;
             return res.status(500).json({ error:'smart-map produced no seeds' });
           }
         }
       }
-    }catch(e){
-      push('[PLAN_EXC] '+e.message);
-      if(directURLs.length){ fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8'); }
-      else {
+    } catch (e) {
+      push('[PLAN_EXC] ' + e.message);
+      if (directURLs.length) {
+        fs.writeFileSync(seedsFile, directURLs.join('\n')+'\n','utf8');
+      } else {
         startingJob = false; currentJob=null; currentChildProc=null;
-        return res.status(500).json({ error:'Plan-first failed: '+e.message });
+        return res.status(500).json({ error:'Plan-first failed: ' + e.message });
       }
     }
   } else {

@@ -225,6 +225,13 @@
     };
     mk(planAvailable, 'planAvailable');
     mk(planSelected, 'planSelected');
+    // Update button states and status/metrics
+    const btnStart = id('btnPlanStart');
+    if (btnStart) btnStart.disabled = planSelected.length === 0;
+    const btnSave = id('btnPlanSave');
+    if (btnSave) btnSave.disabled = !selectedRun;
+    const status = id('planStatus');
+    if (status) status.textContent = `Available: ${planAvailable.length}, Selected: ${planSelected.length}`;
   }
   function getChecked(containerId){
     const el = id(containerId); if(!el) return [];
@@ -236,7 +243,14 @@
     const options = buildOptions();
     fetch('/api/plan/build',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ startUrlsText: startText, options }) })
       .then(jsonMaybe).then(j=>{
-        if(j && j.ok && j.map){ renderPlanFromMap(j.map, j.runId); logCap('Plan built: '+JSON.stringify(j.map.counts)); selectedRun = j.runId; id('hostRun').value=j.runId; }
+        if(j && j.ok && j.map){
+          // Reset any prior selection when building a new plan
+          planSelected = [];
+          renderPlanFromMap(j.map, j.runId);
+          logCap('Plan built: '+JSON.stringify(j.map.counts));
+          selectedRun = j.runId; id('hostRun').value=j.runId;
+          const ps = id('planStatus'); if(ps){ ps.textContent = 'Plan built. You can Select, Save, or Start Capture.'; }
+        }
         else logCap('Plan build response '+JSON.stringify(j||{}));
       }).catch(e=>logCap('Plan build error '+e.message));
   };
@@ -246,6 +260,15 @@
     sel.forEach(u=>{ if(!setSel.has(u)) planSelected.push(u); });
     renderPlanLists();
   };
+  // Select all available URLs
+  const btnAll = id('btnPlanSelectAll');
+  if (btnAll) {
+    btnAll.onclick = () => {
+      const setSel = new Set(planSelected);
+      planAvailable.forEach(u => { if (!setSel.has(u)) planSelected.push(u); });
+      renderPlanLists();
+    };
+  }
   id('btnPlanRemove').onclick=()=>{
     const sel = getChecked('planSelected');
     const rm = new Set(sel);
@@ -265,9 +288,40 @@
   id('btnPlanSave').onclick=()=>{
     if(!selectedRun){ alert('Select or build a run first'); return; }
     fetch('/api/plan/'+selectedRun, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ selected: planSelected, order: planSelected }) })
-      .then(jsonMaybe).then(j=>{ logCap('Plan saved '+JSON.stringify(j)); })
+      .then(jsonMaybe).then(j=>{ 
+        logCap('Plan saved '+JSON.stringify(j));
+        const ps = id('planStatus'); if(ps){ ps.textContent = 'Saved curated list ('+(j?.count??planSelected.length)+' items).'; }
+      })
       .catch(e=>logCap('Plan save error '+e.message));
   };
+  // Start capture directly from curated plan seeds
+  const btnStartFromPlan = id('btnPlanStart');
+  if (btnStartFromPlan) {
+    btnStartFromPlan.onclick = () => {
+      if (!planSelected.length) { alert('Select at least one URL in the Plan Builder.'); return; }
+      const options = buildOptions();
+      // Force strict plan-run: no discovery/auto-expand/plan-first; process sequentially
+      options.planSeeds = planSelected.slice();
+      options.planFirst = false;
+      options.discoverInArchiver = false;
+      options.autoExpandDepth = 0;
+      options.autoExpandMaxPages = 0;
+      options.concurrency = 1;
+      const first = options.planSeeds[0];
+      // For run id stability and primary root redirect, pass first seed as urlsText as well
+      fetch('/api/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ urlsText: first, options }) })
+        .then(jsonMaybe)
+        .then(j => {
+          logCap('Run from Plan response '+JSON.stringify(j));
+          const ps = id('planStatus'); if(ps){ ps.textContent = j?.ok ? ('Started run '+(j.runId||'')) : ('Failed to start: '+(j?.error||'unknown')); }
+          setTimeout(loadRuns, 800);
+        })
+        .catch(e => {
+          const ps = id('planStatus'); if(ps){ ps.textContent = 'Start failed: '+e.message; }
+          logCap('Run start from plan error '+e.message);
+        });
+    };
+  }
   id('btnPlanExport').onclick=()=>{
     const data = { selected: planSelected, available: planAvailable };
     const blob = new Blob([JSON.stringify(data,null,2)], { type:'application/json' });

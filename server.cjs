@@ -29,6 +29,8 @@ const DEFAULT_VARIANT = (process.env.DEFAULT_VARIANT || 'desktop').toLowerCase()
 const START_PATH = process.env.START_PATH || '';
 const DISABLE_HTML_INJECT = String(process.env.DISABLE_HTML_INJECT || '').toLowerCase() === 'true';
 const DISABLE_FETCH_CACHE = String(process.env.DISABLE_FETCH_CACHE || '').toLowerCase() === 'true';
+// When true, redirect commerce interactions (cart/checkout/payment) to live origin (disabled by default per user request)
+const LIVE_PASSTHROUGH = String(process.env.LIVE_PASSTHROUGH || 'false').toLowerCase() === 'true';
 
 if (!ROOT || !fs.existsSync(ROOT)) {
   console.error('[SERVER_FATAL] ARCHIVE_ROOT not found:', ROOT);
@@ -204,6 +206,95 @@ function loadOrigins(root) {
 }
 const ORIGINS = loadOrigins(ROOT);
 
+// Optional payment mapping: ROOT/_payment-map.json
+// Example: { provider: "paypal", target: "_blank", map: { "318": "paypal:HOSTED_ID", "413": "https://buy.stripe.com/xyz" } }
+function loadPaymentMap(root){
+  try{
+    const p = path.join(root, '_payment-map.json');
+    const txt = fs.readFileSync(p, 'utf8');
+    const obj = JSON.parse(txt);
+    if (obj && typeof obj === 'object' && obj.map) return obj;
+  }catch{}
+  return null;
+}
+const PAYMENT_MAP = loadPaymentMap(ROOT);
+
+function primaryOrigin() {
+  // Prefer https if present
+  const httpsFirst = ORIGINS.find(o => o.startsWith('https://'));
+  return httpsFirst || ORIGINS[0] || '';
+}
+
+function isAjax(req) {
+  const xr = String(req.get('x-requested-with') || '').toLowerCase();
+  const acc = String(req.get('accept') || '').toLowerCase();
+  return xr === 'xmlhttprequest' || acc.includes('application/json') || /\.json$|\.js$/i.test(req.path || '');
+}
+
+function normalizeNestedIndexPhp(originalUrlPath) {
+  // Collapse /index.php__slug.../index.php -> /index.php
+  try {
+    const p = originalUrlPath || '';
+    const low = p.toLowerCase();
+    if (low.includes('/index.php__')) {
+      const j = low.lastIndexOf('/index.php');
+      if (j >= 0) return p.slice(j);
+    }
+  } catch {}
+  return originalUrlPath;
+}
+
+function buildOriginUrl(req) {
+  const origin = primaryOrigin();
+  if (!origin) return '';
+  const u = req.originalUrl || req.url || '/';
+  const parsed = new URL(origin);
+  const pathOnly = u.split('?')[0];
+  const qsOnly = u.includes('?') ? u.slice(u.indexOf('?')) : '';
+  let pathFixed = normalizeNestedIndexPhp(pathOnly);
+  parsed.pathname = pathFixed;
+  const full = parsed.toString().replace(/\/?$/, '');
+  return full + qsOnly;
+}
+
+function isCommerceRoute(req) {
+  const url = String(req.originalUrl || req.url || '');
+  const q = String(url.split('?')[1] || '');
+  const sp = new URLSearchParams(q);
+  const route = (sp.get('route') || '').toLowerCase();
+  const path = (url.split('?')[0] || '').toLowerCase();
+  // OpenCart common
+  if (/^checkout\//.test(route)) return true;
+  if (/^extension\/(?:module\/)?..*payment/.test(route)) return true;
+  if (route === 'product/product/review' || route === 'product/product/write') return true;
+  // WooCommerce
+  if (sp.has('add-to-cart')) return true;
+  if (/\/cart(\/.+)?$/.test(path) || /\/checkout(\/.+)?$/.test(path)) return true;
+  // Shopify
+  if (/\/cart\/(add(\.js)?|update(\.js)?)/.test(path)) return true;
+  if (/\/checkout(\/.+)?$/.test(path)) return true;
+  return false;
+}
+
+// Passthrough middleware (before any stubs)
+if (LIVE_PASSTHROUGH) {
+  app.all(/.*/, express.urlencoded({ extended: true }), express.json({ strict: false }), (req, res, next) => {
+    if (!isCommerceRoute(req)) return next();
+    const dest = buildOriginUrl(req);
+    if (!dest) return next();
+    if (req.method === 'GET') {
+      return res.redirect(302, dest);
+    }
+    // For POST/PUT etc., if it's an AJAX call, return a JSON with redirect hint; else 307
+    if (isAjax(req)) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('X-Archive-Redirect', 'commerce');
+      return res.status(200).send(JSON.stringify({ redirect: dest }));
+    }
+    return res.redirect(307, dest);
+  });
+}
+
 // SHA alias helper
 function shaCandidateFor(origin, reqPath, extFromReq) {
   // Build full URL as the archiver saw it (origin + path)
@@ -267,21 +358,37 @@ app.use(express.static(ROOT, {
 app.get(/\.[a-z0-9]+$/i, async (req, res, next) => {
   if (!EXT_RE.test(req.path)) return next();
 
+  // Some assets are requested from inside a query-slug folder, e.g.:
+  //   /index.php__product_id_318__route_product_product/image/catalog/teacup.png
+  // Normalize to the original origin path (e.g., /image/catalog/teacup.png)
+  function normalizeNestedAssetPath(p) {
+    try {
+      const parts = String(p || '').split('/').filter(Boolean);
+      const idx = parts.findIndex(seg => /__route_/i.test(seg));
+      if (idx >= 0 && idx < parts.length - 1) {
+        return '/' + parts.slice(idx + 1).join('/');
+      }
+    } catch {}
+    return p;
+  }
+
+  const reqPath = normalizeNestedAssetPath(req.path);
+
   // 1) preserved path
-  const preserved = path.join(ROOT, req.path.replace(/^\//, ''));
+  const preserved = path.join(ROOT, reqPath.replace(/^\//, ''));
   if (fileExists(preserved)) return res.sendFile(preserved);
 
   // 2) basename alias
-  const base = path.basename(req.path).toLowerCase();
+  const base = path.basename(reqPath).toLowerCase();
   const byBase = ASSET_INDEX.get(base);
   if (byBase && fileExists(byBase)) {
     return res.sendFile(byBase);
   }
 
   // 3) SHA alias for any known origin
-  const extReq = path.extname(req.path) || '';
+  const extReq = path.extname(reqPath) || '';
   for (const origin of ORIGINS) {
-    const cand = shaCandidateFor(origin, req.path, extReq);
+    const cand = shaCandidateFor(origin, reqPath, extReq);
     if (fileExists(cand)) {
       return res.sendFile(cand);
     }
@@ -290,7 +397,7 @@ app.get(/\.[a-z0-9]+$/i, async (req, res, next) => {
   // 4) Live fetch and cache
   if (!DISABLE_FETCH_CACHE && ORIGINS.length) {
     for (const origin of ORIGINS) {
-      const fullUrl = origin.replace(/\/+$/, '') + req.path;
+      const fullUrl = origin.replace(/\/+$/, '') + reqPath;
       // Decide save path: prefer requested ext; if none, try to infer after fetch (simple)
       let cand = shaCandidateFor(origin, req.path, extReq);
       if (!extReq) {
@@ -299,7 +406,7 @@ app.get(/\.[a-z0-9]+$/i, async (req, res, next) => {
       }
       const saved = await fetchAndCache(fullUrl, cand);
       if (saved && fileExists(saved)) {
-        console.log('[FETCH_CACHE]', req.path, '->', path.relative(ROOT, saved));
+        console.log('[FETCH_CACHE]', reqPath, '->', path.relative(ROOT, saved));
         return res.sendFile(saved);
       }
     }
@@ -310,6 +417,66 @@ app.get(/\.[a-z0-9]+$/i, async (req, res, next) => {
 
 // Optional stub endpoints some sites expect
 app.get(/^\/save_captcha_token.*$/i, (req, res) => res.status(204).end());
+
+// OpenCart-friendly AJAX stubs to avoid 404 alerts in archived views
+// These endpoints usually return JSON or small HTML snippets. We reply with
+// harmless placeholders to keep the UI calm when a user clicks "Buy" etc.
+function queryParam(originalUrl, key) {
+  try {
+    const qs = String(originalUrl.split('?')[1] || '');
+    const sp = new URLSearchParams(qs);
+    return sp.get(key) || '';
+  } catch { return ''; }
+}
+
+// Match both /index.php?... and nested .../index.php?... within query-slug dirs
+app.all(/index\.php$/i, express.urlencoded({ extended: true }), express.json({ strict: false }), (req, res, next) => {
+  if (LIVE_PASSTHROUGH) return next(); // passthrough handler earlier will catch if needed
+  const route = (queryParam(req.originalUrl, 'route') || '').toLowerCase();
+  if (!route) return next();
+
+  // Common cart endpoints (OpenCart 2/3 and some theme variants)
+  const cartRoutes = new Set([
+    'checkout/cart/add',
+    'checkout/cart/remove',
+    'checkout/cart/clear',
+    'common/cart/info',
+    'extension/module/cart/add',
+    'extension/cart/add',
+    'extension/quickcheckout/cart/add',
+    'extension/occart/cart/add',
+  ]);
+
+  if (cartRoutes.has(route)) {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('X-Archive-Stub', 'opencart-cart');
+    // Basic, non-persistent response: pretend action succeeded but do not track state
+    const productId = req.body?.product_id || queryParam(req.originalUrl, 'product_id') || '';
+    const qty = Number(req.body?.quantity || queryParam(req.originalUrl, 'quantity') || 1) || 1;
+    const successMsg = `Archive: item${productId ? ' #' + productId : ''} x${qty} (cart disabled in archive)`;
+    return res.status(200).send(JSON.stringify({ success: successMsg, total: '0 item(s) - 0.00' }));
+  }
+
+  if (route === 'product/product/review') {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('X-Archive-Stub', 'opencart-review');
+    return res.status(200).send('<div class="alert alert-info">Reviews are disabled in the archived preview.</div>');
+  }
+
+  if (route === 'product/product/write') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('X-Archive-Stub', 'opencart-review-write');
+    return res.status(200).send(JSON.stringify({ success: 'Review submission disabled in archive.' }));
+  }
+
+  if (route === 'account/wishlist/add' || route === 'product/compare/add') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('X-Archive-Stub', 'opencart-misc');
+    return res.status(200).send(JSON.stringify({ success: 'Action disabled in archive.' }));
+  }
+
+  return next();
+});
 
 // Optional root redirect
 if (START_PATH && START_PATH !== '/') {
@@ -364,9 +531,75 @@ app.get(/.*/, (req, res, next) => {
       var t0=Date.now(); var obs=new MutationObserver(function(){ if(Date.now()-t0>7000){ try{obs.disconnect()}catch(e){} return; } unlock(); });
       try{obs.observe(document.documentElement,{childList:true,subtree:true})}catch(e){}
     }catch(e){}})();</script>`;
-    if (html.includes('</head>')) html = html.replace('</head>', injectTag + '\n</head>');
-    else if (html.includes('<body')) html = html.replace('<body', '<body>' + injectTag);
-    else html += injectTag;
+    // Optional: inject payment-link rewriter if a mapping is present
+    let payInject = '';
+    if (PAYMENT_MAP && PAYMENT_MAP.map) {
+      const pmStr = JSON.stringify(PAYMENT_MAP).replace(/</g,'\\u003c');
+      payInject = `<script>(function(){try{
+        var PM = window.__PAYMENT_MAP = ${pmStr};
+        function ppUrl(v){
+          if(typeof v!=='string') return '';
+          // paypal:HOSTED_BUTTON_ID -> hosted button URL
+          if(v.indexOf('paypal:')===0){ var id=v.slice(7); return 'https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id='+encodeURIComponent(id);} 
+          return v; 
+        }
+        function domProdId(root){
+          root = root||document;
+          try{
+            // OpenCart common hidden input
+            var el = root.querySelector('input[name="product_id"], #product_id');
+            if(el && el.value) return String(el.value);
+            // WooCommerce add-to-cart hidden input on single product
+            var woo = root.querySelector('form.cart input[name="add-to-cart"]');
+            if(woo && woo.value) return String(woo.value);
+            // data-product-id on buttons/containers
+            var dataEl = root.querySelector('[data-product-id]');
+            if(dataEl && dataEl.getAttribute('data-product-id')) return String(dataEl.getAttribute('data-product-id'));
+            // Microdata
+            var meta = root.querySelector('meta[itemprop="productID"],[itemprop="productID"]');
+            if(meta){ var v = meta.content || meta.getAttribute('content') || meta.textContent; if(v) return String(v).trim(); }
+          }catch(e){}
+          return '';
+        }
+        function curProdId(){
+          try{ 
+            var sp=new URLSearchParams(location.search.slice(1));
+            var pid=sp.get('product_id'); if(pid) return String(pid);
+            var atc=sp.get('add-to-cart'); if(atc) return String(atc);
+          }catch(e){}
+          // fallback to DOM probing
+          return domProdId(document);
+        }
+        function linkForId(id){ if(!id) return ''; var v=(PM.map && (PM.map[String(id)]||PM.map['product_id_'+id]))||''; return ppUrl(v); }
+        function openPay(link){ if(!link) return false; try{ if(PM.target){ window.open(link, PM.target); } else { location.href = link; } return true; }catch(e){ try{ location.href = link; return true; }catch(_){} } return false; }
+        function rewrite(root){ 
+          root=root||document; 
+          var pid=curProdId(); 
+          var link=linkForId(pid);
+          // If we have a link, hijack common buttons/forms early
+          var btnSel = '#button-cart, button[name="button-add-to-cart"], button[name="add-to-cart"], .single_add_to_cart_button, .add_to_cart_button';
+          var btn = root.querySelector(btnSel);
+          if(btn && link){ btn.addEventListener('click', function(ev){ try{ev.preventDefault();ev.stopPropagation();}catch(e){} openPay(link); }, {capture:true}); }
+          // WooCommerce form submit
+          root.querySelectorAll('form.cart').forEach(function(f){ try{ if(!link){ var hid=f.querySelector('input[name="add-to-cart"]'); if(hid&&hid.value){ link = linkForId(hid.value); } } if(link){ f.addEventListener('submit', function(ev){ try{ev.preventDefault();ev.stopPropagation();}catch(e){} openPay(link); }, {capture:true}); } }catch(e){} });
+          // Anchor-based add-to-cart/cart links
+          root.querySelectorAll('a[href*="route=checkout/cart/add"], a[href*="add-to-cart="], a[href*="/cart/add"], a[href*="/cart?add="]').forEach(function(a){ 
+            try{ 
+              var u=new URL(a.getAttribute('href'), location.href); 
+              var id=u.searchParams.get('product_id')||u.searchParams.get('add-to-cart')||u.searchParams.get('add'); 
+              var L=linkForId(id||pid); 
+              if(L){ a.setAttribute('href', L); a.setAttribute('target', PM.target||'_self'); a.addEventListener('click', function(ev){ try{ev.preventDefault();ev.stopPropagation();}catch(e){} openPay(L); }, {capture:true}); }
+            }catch(e){} 
+          });
+        }
+        document.addEventListener('DOMContentLoaded', function(){ rewrite(); });
+        try{ var mo=new MutationObserver(function(){ rewrite(document); }); mo.observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
+      }catch(e){}})();</script>`;
+    }
+    const fullInject = injectTag + (payInject||'');
+    if (html.includes('</head>')) html = html.replace('</head>', fullInject + '\n</head>');
+    else if (html.includes('<body')) html = html.replace('<body', '<body>' + fullInject);
+    else html += fullInject;
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');

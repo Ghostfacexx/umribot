@@ -507,7 +507,9 @@ if (LIVE_PASSTHROUGH) {
     const dest = buildOriginUrl(req);
     if (!dest) return next();
     if (req.method === 'GET') {
-      return res.redirect(302, dest);
+      // Header-only redirect to avoid Express' default HTML body
+      res.status(302).set('Location', dest);
+      return res.end();
     }
     // For POST/PUT etc., if it's an AJAX call, return a JSON with redirect hint; else 307
     if (isAjax(req)) {
@@ -515,7 +517,8 @@ if (LIVE_PASSTHROUGH) {
       res.setHeader('X-Archive-Redirect', 'commerce');
       return res.status(200).send(JSON.stringify({ redirect: dest }));
     }
-    return res.redirect(307, dest);
+    res.status(307).set('Location', dest);
+    return res.end();
   });
 }
 
@@ -563,20 +566,27 @@ function fetchAndCache(fullUrl, targetAbsPath) {
   });
 }
 
-// Static (direct matches)
-app.use(express.static(ROOT, {
-  extensions: ['html'],
+// Static (assets only). Let catch-all serve HTML so we can inject and strip meta refresh redirects.
+const __static = express.static(ROOT, {
   fallthrough: true,
+  redirect: false,
   setHeaders(res, file) {
-    if (/\.(html?)$/i.test(file)) {
-      res.setHeader('Cache-Control', 'no-cache');
-    } else if (/\.(?:css|js|mjs|cjs|json|ico|png|jpe?g|webp|gif|svg|woff2?|ttf|otf|mp4|webm)$/i.test(file)) {
+    if (/\.(?:css|js|mjs|cjs|json|ico|png|jpe?g|webp|gif|svg|woff2?|ttf|otf|mp4|webm)$/i.test(file)) {
       res.setHeader('Cache-Control', 'public,max-age=31536000,immutable');
+    } else if (/\.(html?)$/i.test(file)) {
+      res.setHeader('Cache-Control', 'no-cache');
     } else {
       res.setHeader('Cache-Control', 'public,max-age=86400');
     }
   }
-}));
+});
+app.use((req, res, next) => {
+  const p = req.path || '';
+  const hasExt = /\.[a-z0-9]+$/i.test(p);
+  const isHtml = /\.html?$/i.test(p) || !hasExt;
+  if (isHtml) return next();
+  return __static(req, res, next);
+});
 
 // Universal asset resolver: preserved -> basename alias -> SHA alias -> live fetch+cache
 app.get(/\.[a-z0-9]+$/i, async (req, res, next) => {
@@ -706,7 +716,8 @@ app.all(/index\.php$/i, express.urlencoded({ extended: true }), express.json({ s
 if (START_PATH && START_PATH !== '/') {
   app.get('/', (req, res, next) => {
     if (req.originalUrl === '/' || req.originalUrl === '') {
-      return res.redirect(302, START_PATH);
+      res.status(302).set('Location', START_PATH).set('Content-Length','0');
+      return res.end();
     }
     next();
   });
@@ -719,7 +730,12 @@ app.get(/.*/, (req, res, next) => {
   const isHtmlPreferred = accept.includes('text/html') || !/\.[a-zA-Z0-9]+$/.test(req.path);
   if (!isHtmlPreferred) return next();
 
-  const resolved = resolveHtml(req);
+  let resolved = resolveHtml(req);
+  // If root is requested and a START_PATH is configured, internally resolve
+  if ((!req.path || req.path === '/') && START_PATH && START_PATH !== '/') {
+    const alt = resolveHtml(START_PATH);
+    if (alt) resolved = alt;
+  }
   if (!resolved) return next();
 
   if (DISABLE_HTML_INJECT) {
@@ -728,6 +744,44 @@ app.get(/.*/, (req, res, next) => {
 
   try {
     let html = fs.readFileSync(resolved, 'utf8');
+    // Detect captured HTML redirect shims and convert them to header-only redirects
+    try {
+      const meta = html.match(/<meta[^>]+http-equiv\s*=\s*['"]?refresh['"]?[^>]+content\s*=\s*['"][^"']*url\s*=\s*([^"'>\s;]+)[^"']*['"][^>]*>/i);
+      let target = meta && meta[1] ? meta[1].trim() : '';
+      if (!target) {
+        const a = html.match(/Redirecting\s+to\s+<a\s+href=["']([^"']+)["']/i);
+        target = a && a[1] ? a[1].trim() : '';
+      }
+      if (target) {
+        try {
+          const base = `http://dummy${req.originalUrl || '/'}`;
+          const u = new URL(target, base);
+          const loc = u.pathname + (u.search || '') + (u.hash || '');
+          // Avoid redirect loops
+          const reqP = req.path || '/';
+          const same = (p)=> {
+            const addSlash = (s)=> /\.[a-z0-9]+$/i.test(s) ? s : (s.endsWith('/') ? s : s + '/');
+            return addSlash(p.replace(/\\/g,'/')) === addSlash(reqP.replace(/\\/g,'/'));
+          };
+          if (!same(loc)) {
+            // Prefer internal serve of target to avoid any redirect flash
+            const altResolved = resolveHtml(loc);
+            if (altResolved) {
+              resolved = altResolved;
+              html = fs.readFileSync(altResolved, 'utf8');
+            } else {
+              res.status(302).set('Location', loc).set('Content-Length','0');
+              return res.end();
+            }
+          }
+        } catch(_) {}
+      }
+    } catch(_) {}
+    // Regardless, strip meta-refresh and common redirect stub snippet so nothing flashes
+    try {
+      html = html.replace(/<meta[^>]+http-equiv\s*=\s*["']?refresh["']?[^>]*>/ig, '');
+      html = html.replace(/<p[^>]*>\s*Redirecting\s+to\s+<a[^>]*>.*?<\/a>\s*<\/p>/ig, '');
+    } catch(_) {}
     // Build a small client-side guard to avoid SPA routers flipping to client 404s
     const CAPTURED = Array.from(HTML_INDEX);
     const injectTag = `<script>(function(){try{

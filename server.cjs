@@ -48,6 +48,73 @@ try {
   console.log('[SERVER] compression not installed');
 }
 
+// Lightweight proxy for select GET requests (used for protocol-relative fixes)
+async function proxyGet(fullUrl, res) {
+  return new Promise((resolve) => {
+    try {
+      const proto = fullUrl.startsWith('https:') ? https : http;
+      const req = proto.get(fullUrl, { timeout: 20000, headers: { 'User-Agent': 'ArchiveHost/1.0' } }, (r) => {
+        if (r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
+          const loc = r.headers.location.startsWith('http') ? r.headers.location : new URL(r.headers.location, fullUrl).toString();
+          r.resume();
+          return resolve(proxyGet(loc, res));
+        }
+        try {
+          const status = r.statusCode || 200;
+          const headers = {};
+          for (const [k, v] of Object.entries(r.headers || {})) {
+            if (!/^transfer-encoding|connection|keep-alive|content-length$/i.test(k)) headers[k] = v;
+          }
+          res.status(status).set(headers);
+          r.pipe(res);
+          r.on('end', () => resolve(true));
+          r.on('error', () => { try { res.status(204).end(); } catch {} resolve(false); });
+        } catch {
+          try { res.status(204).end(); } catch {}
+          resolve(false);
+        }
+      });
+      req.on('error', () => { try { res.status(204).end(); } catch {} resolve(false); });
+      req.on('timeout', () => { try { req.destroy(); } catch {} try { res.status(204).end(); } catch {} resolve(false); });
+    } catch {
+      try { res.status(204).end(); } catch {}
+      resolve(false);
+    }
+  });
+}
+
+// Normalize bad protocol-relative paths that became "/undefined//host/..."
+// Example from logs: /en-us/desktop/undefined//accdn.lpsnmedia.net/api/... -> https://accdn.lpsnmedia.net/api/...
+app.get(/undefined\/\/[A-Za-z0-9.-]+\//i, async (req, res, next) => {
+  try {
+    const m = req.path.match(/undefined\/\/([^/]+)(\/.*)$/i);
+    if (!m) return next();
+    const host = m[1];
+    const rest = m[2] || '/';
+    const scheme = primaryOrigin().startsWith('https://') ? 'https:' : 'http:';
+    const qs = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+    const full = scheme + '//' + host + rest + qs;
+    return await proxyGet(full, res);
+  } catch {
+    return next();
+  }
+});
+
+// Quiet common trackers/pixels that aren't needed in an offline archive
+app.all(/^\/akam\//i, (req, res) => res.status(204).end());
+// Random hashed BIN beacons observed in logs -> no-op
+app.all(/^\/[A-Za-z0-9]{8,}\/.*\.bin$/i, (req, res) => res.status(204).end());
+
+// Minimal stubs for YOOX/THE OUTNET JSON APIs to prevent error overlays
+app.get(/^\/api\/yoox\/ton\/search\/resources\/store\/[^/]+\/productview\/byCategory/i, (req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  return res.status(200).send(JSON.stringify({ products: [], facets: [], total: 0 }));
+});
+app.get(/^\/api\/yoox\/ton\/blueprint\/servlet\/contentbyurl\/v2\/store\/[^?]+/i, (req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  return res.status(200).send(JSON.stringify({ content: {}, ok: true }));
+});
+
 // Helpers
 function fileExists(f) { try { return fs.statSync(f).isFile(); } catch { return false; } }
 function ensureDir(d) { fs.mkdirSync(d, { recursive: true }); }

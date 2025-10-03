@@ -578,12 +578,22 @@ app.post('/api/plan/build', (req,res)=>{
     if(options.autoExpandDenyRegex) env.DENY_REGEX = options.autoExpandDenyRegex;
     if(options.nextPageSelector) env.NEXT_PAGE_SELECTOR = options.nextPageSelector;
     if(options.pageParam) env.PAGE_PARAM = options.pageParam;
-    const out = require('child_process').spawnSync(process.execPath, [SMART_MAP, dir], { env, encoding:'utf8' });
-    if(out.status!==0) return res.status(500).json({ error: out.stderr || out.stdout || 'plan build failed' });
-    const mapPath = path.join(dir,'_plan','map.json');
-    if(!fs.existsSync(mapPath)) return res.status(500).json({ error:'map.json missing' });
-    const map = JSON.parse(fs.readFileSync(mapPath,'utf8'));
-    return res.json({ ok:true, planDir: path.join(dir,'_plan'), runId:id, map, seedsFile: path.join(dir,'_plan','seeds.txt') });
+    // Stream smart-map logs to SSE and respond when it finishes
+    push(`[PLAN_START] id=${id} urls=${startUrls.length}`);
+    const child = require('child_process').spawn(process.execPath, [SMART_MAP, dir], { env });
+    attachChildProcessLoggers(child, 'PLAN');
+    child.on('exit', code => {
+      if (code !== 0) {
+        try {
+          // Try to read last line from stdout/stderr if any
+          return res.status(500).json({ error: 'plan build failed (exit '+code+')' });
+        } catch { return res.status(500).json({ error:'plan build failed' }); }
+      }
+      const mapPath = path.join(dir,'_plan','map.json');
+      if(!fs.existsSync(mapPath)) return res.status(500).json({ error:'map.json missing' });
+      const map = JSON.parse(fs.readFileSync(mapPath,'utf8'));
+      return res.json({ ok:true, planDir: path.join(dir,'_plan'), runId:id, map, seedsFile: path.join(dir,'_plan','seeds.txt') });
+    });
   } catch(e){ res.status(500).json({ error: e.message }); }
 });
 

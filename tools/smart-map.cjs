@@ -82,18 +82,53 @@ function normalize(url){
 }
 
 async function get(url, opts={}){
-  const { timeoutMs=15000, retries=2 } = opts;
+  const timeoutEnv = parseInt(process.env.PLAN_TIMEOUT_MS||'',10);
+  const retryEnv = parseInt(process.env.PLAN_RETRIES||'',10);
+  const { timeoutMs=(Number.isFinite(timeoutEnv)?timeoutEnv:25000), retries=(Number.isFinite(retryEnv)?retryEnv:3) } = opts;
   let lastErr;
   for(let i=0;i<=retries;i++){
     try{
       const ctl = new AbortController();
       const t = setTimeout(()=>ctl.abort(), timeoutMs);
-      const r = await fetch(url, { redirect:'follow', signal: ctl.signal, headers: { 'User-Agent':'Mozilla/5.0 (PlanBot)' } });
+      const ua = process.env.PLAN_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+      const u = new URL(url);
+      const headers = {
+        'User-Agent': ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': process.env.PLAN_ACCEPT_LANGUAGE || 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Upgrade-Insecure-Requests': '1',
+        // Additional realistic browser headers to reduce bot challenges
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
+        'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'Referer': u.origin + '/',
+        'Connection': 'keep-alive',
+        'DNT': '1'
+      };
+      const r = await fetch(url, { redirect:'follow', signal: ctl.signal, headers });
       clearTimeout(t);
       if(!r.ok) throw new Error('HTTP '+r.status);
       const html = await r.text();
       return html;
-    }catch(e){ lastErr=e; await sleep(300); }
+    }catch(e){
+      // Normalize abort/timeout error message so it doesn't read like the user did it
+      const isAbort = (e && (e.name==='AbortError' || /aborted/i.test(String(e && e.message))));
+      if(isAbort){
+        lastErr = new Error(`Timeout after ${timeoutMs} ms`);
+      } else {
+        lastErr = e instanceof Error ? e : new Error(String(e));
+      }
+      if(i<retries){
+        console.log('[PLAN]', `retry ${i+1}/${retries} ${url} due to: ${lastErr.message}`);
+        await sleep(300);
+      }
+    }
   }
   throw lastErr;
 }
@@ -105,6 +140,7 @@ function classifyHref(href, base, platform){
     const route = (qs.match(/(?:^|[?&])route=([^&]+)/) || [,''])[1].toLowerCase();
     const isProductId = /(?:^|[?&])product_id=\d+/.test(qs);
     const p = u.pathname.toLowerCase();
+    const host = u.hostname.toLowerCase();
 
     // OpenCart
     if(platform==='opencart' || platform==='auto'){
@@ -117,6 +153,12 @@ function classifyHref(href, base, platform){
       if(/\/product\//.test(p)) return 'product';
       if(/\/(category|product-category)\//.test(p)) return 'category';
       if(/\/(about|contact|shipping|returns|privacy|terms)(?:\/|$)/.test(p)) return 'information';
+    }
+    // YNAP-style (The Outnet / Net-A-Porter)
+    if(platform==='auto' || /theoutnet\.com$/.test(host) || /net-a-porter\.com$/.test(host) || /mrporter\.com$/.test(host)){
+      if(/\/shop\/product\//.test(p)) return 'product';
+      if(/\/shop(\/|$)/.test(p)) return 'category';
+      if(/\/(help|contact|about|privacy|terms)(?:\/|$)/.test(p)) return 'information';
     }
   // Shopify
     if(platform==='shopify' || platform==='auto'){
@@ -175,7 +217,12 @@ async function collectFromPage(url, cfg, platform){
 async function buildPlan(starts, cfg){
   if(!starts.length) die('No START_URLS provided');
   const primary = starts[0];
-  const homeHtml = await get(primary).catch(()=> '');
+  let homeHtml = '';
+  try { homeHtml = await get(primary); } catch(e) {
+    log('home fetch failed:', (e && e.message) || String(e));
+    // Proceed with auto platform; downstream will still attempt to collect links
+    homeHtml = '';
+  }
   const platform = (cfg.platformHint && cfg.platformHint!=='auto') ? cfg.platformHint : pickPlatform(homeHtml, primary);
   log('platform=', platform);
 

@@ -1,0 +1,22 @@
+{
+  "start": "https://theoutnet.com/en-us/shop/",
+  "counts": {
+    "nodes": 1,
+    "edges": 0
+  },
+  "nodes": {
+    "https://theoutnet.com/en-us/shop/": {
+      "depth": 0
+    }
+  },
+  "edges": [],
+  "tree": {},
+  "config": {
+    "maxDepth": 2,
+    "maxPages": 25,
+    "allow": null,
+    "deny": null,
+    "sameSiteMode": "etld"
+  },
+  "createdAt": "2025-10-02T23:17:16.593Z"
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "sku": "SKU-000001",
+    "name": "BRUNELLO CUCINELLI Linen blazer",
+    "description": "Shop on-sale BRUNELLO CUCINELLI Linen blazer for Woman. Browse the best deals from BRUNELLO CUCINELLI and luxury fashion at The Outnet.",
+    "price": {
+      "amount": 5.29,
+      "currency": "$"
+    },
+    "images": [
+      "https://www.theoutnet.com/variants/images/46376663162958956/F/w1020_q80.jpg"
+    ],
+    "source": {
+      "url": "https://www.theoutnet.com/en-us/shop/list/modesty",
+      "relPath": "en-us/shop/list/modesty"
+    }
+  }
+]

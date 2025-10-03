@@ -1,0 +1,26 @@
+{
+  "platform": "generic",
+  "counts": {
+    "home": 1,
+    "categories": 0,
+    "information": 0,
+    "products": 0,
+    "seeds": 1
+  },
+  "lists": {
+    "home": [
+      "https://www.theoutnet.com/en-us"
+    ],
+    "categories": [],
+    "information": [],
+    "products": [],
+    "others": []
+  },
+  "samples": {
+    "home": [
+      "https://www.theoutnet.com/en-us"
+    ],
+    "categories": [],
+    "products": []
+  }
+}

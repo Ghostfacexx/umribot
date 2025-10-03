@@ -104,8 +104,111 @@ const PAYMENT_MAP_AUTO = envB('PAYMENT_MAP_AUTO', true);
 const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || 'paypal';
 const PAYMENT_TARGET = process.env.PAYMENT_TARGET || '_blank';
 const PAYMENT_PLACEHOLDER = process.env.PAYMENT_PLACEHOLDER || 'paypal:HOSTED_BUTTON_ID_PLACEHOLDER';
+// Also write a SKU-based payment map derived from the catalog (bySku)
+const GENERATE_PAYMENT_MAP_FROM_CATALOG = envB('GENERATE_PAYMENT_MAP_FROM_CATALOG', true);
 // Collected product IDs during capture: id -> { url, title }
 const FOUND_PRODUCT_IDS = new Map();
+/* Product catalog + local SKU registry */
+const ENABLE_CATALOG = envB('ENABLE_CATALOG', true);
+let CATALOG = [];
+let SKU_MAP = { next: 1, byKey: {} };
+const CATALOG_DIR_NAME = 'catalog';
+function catalogDir(outRoot){ return path.join(outRoot, CATALOG_DIR_NAME); }
+function skuString(n){ return 'SKU-' + String(n).padStart(6, '0'); }
+function loadExistingCatalog(outDir){
+  if (!ENABLE_CATALOG) return;
+  try { ensureDir(catalogDir(outDir)); } catch {}
+  try{
+    const f = path.join(catalogDir(outDir), 'catalog.json');
+    if (fs.existsSync(f)) { CATALOG = JSON.parse(fs.readFileSync(f,'utf8')) || []; }
+  }catch{ CATALOG = []; }
+  try{
+    const f = path.join(catalogDir(outDir), 'sku-map.json');
+    if (fs.existsSync(f)) { const o = JSON.parse(fs.readFileSync(f,'utf8')) || {}; SKU_MAP = { next: Number(o.next)||1, byKey: o.byKey||{} }; }
+  }catch{ SKU_MAP = { next: 1, byKey: {} }; }
+}
+function saveCatalog(outDir){
+  if (!ENABLE_CATALOG) return;
+  try { ensureDir(catalogDir(outDir)); } catch {}
+  try { fs.writeFileSync(path.join(catalogDir(outDir),'catalog.json'), JSON.stringify(CATALOG, null, 2)); } catch {}
+  try { fs.writeFileSync(path.join(catalogDir(outDir),'sku-map.json'), JSON.stringify({ next: SKU_MAP.next, byKey: SKU_MAP.byKey }, null, 2)); } catch {}
+}
+function assignSkuForKey(key){
+  if (!ENABLE_CATALOG) return '';
+  if (!key) return '';
+  const cur = SKU_MAP.byKey[key];
+  if (cur) return cur;
+  const sku = skuString(SKU_MAP.next++);
+  SKU_MAP.byKey[key] = sku;
+  return sku;
+}
+function normalizeProductKeyFromUrl(uStr){
+  try{
+    const u = new URL(uStr);
+    // Prefer canonical pathname+query slug to be stable per page
+    const pathOnly = (u.pathname||'').replace(/\/+$/,'');
+    let key = pathOnly || '/';
+    if (u.searchParams && u.searchParams.toString()) {
+      key += '::' + [...u.searchParams.entries()].sort((a,b)=> a[0]===b[0] ? String(a[1]).localeCompare(String(b[1])) : a[0].localeCompare(b[0]))
+                   .map(([k,v])=> `${k}=${v}`).join('&');
+    }
+    return key;
+  }catch{ return String(uStr||''); }
+}
+function extractProductFromPage(html, pageUrl){
+  try{
+    const $ = cheerio.load(html, { decodeEntities: false });
+    // 1) Try JSON-LD Product
+    const ldBlocks = $('script[type="application/ld+json"]').toArray().map(s=>{ try { return JSON.parse($(s).contents().text()); } catch { return null; } }).filter(Boolean);
+    function findProduct(obj){
+      if(!obj) return null;
+      if(Array.isArray(obj)){
+        for(const it of obj){ const f=findProduct(it); if(f) return f; }
+        return null;
+      }
+      const types = ([]).concat(obj['@type']||[]);
+      if(types.includes('Product') || obj['@type']==='Product') return obj;
+      if(obj['@graph']) return findProduct(obj['@graph']);
+      return null;
+    }
+    let prodLD = null;
+    for(const b of ldBlocks){ const f=findProduct(b); if(f){ prodLD=f; break; } }
+    let name='', description='', currency='', price='';
+    let images=[];
+    if (prodLD){
+      name = String(prodLD.name||'');
+      description = String(prodLD.description||'');
+      if (Array.isArray(prodLD.image)) images = prodLD.image.map(String);
+      else if (prodLD.image) images=[String(prodLD.image)];
+      const offers = Array.isArray(prodLD.offers)? prodLD.offers[0] : prodLD.offers;
+      if (offers){
+        currency = String(offers.priceCurrency||offers.price_currency||'');
+        price = String(offers.price||offers.price_amount||'');
+      }
+    }
+    // 2) Heuristics if missing
+    if (!name) name = $('h1').first().text().trim() || $('meta[property="og:title"]').attr('content') || '';
+    if (!description) description = $('meta[name="description"]').attr('content') || '';
+    if (!images.length) {
+      const og = $('meta[property="og:image"]').attr('content'); if (og) images=[og];
+    }
+    if (!price) {
+      // Common price spans
+      const cand = $('[itemprop="price"],[data-price],[class*="price" i]').first().text().replace(/\s+/g,' ').trim();
+      const m = cand.match(/([€$£]|USD|EUR|GBP)\s*([0-9]+(?:[.,][0-9]{2})?)/i);
+      if (m) { currency = (m[1]||'').replace(/[^A-Z€$£]/gi,'').toUpperCase(); price = m[2].replace(',','.'); }
+    }
+    // If still no price, skip catalog entry
+    if (!name || !price) return null;
+    // Currency normalization
+    if (!currency) {
+      const cmeta = $('meta[itemprop="priceCurrency"]').attr('content') || '';
+      currency = (cmeta||'USD').toUpperCase();
+    }
+    const key = normalizeProductKeyFromUrl(pageUrl);
+    return { key, name, description, price: Number(price)||0, currency, images };
+  }catch{ return null; }
+}
 
 /* Commerce flow discovery (external tool) */
 const COMMERCE_FLOW = envB('COMMERCE_FLOW', false);
@@ -116,6 +219,11 @@ const COMMERCE_PLATFORM_HINT = process.env.COMMERCE_PLATFORM_HINT || 'opencart';
 
 /* Optional internal discovery (no external crawler) */
 const DISCOVER_IN_ARCHIVER = envB('DISCOVER_IN_ARCHIVER', false);
+const USE_DISCOVERY_GRAPH = envB('USE_DISCOVERY_GRAPH', true);
+// Prefer using the entire graph (all doc-like nodes) rather than limiting to DISCOVER_MAX_PAGES
+const DISCOVER_USE_GRAPH_FULL = envB('DISCOVER_USE_GRAPH_FULL', false);
+// When selecting nodes from the graph, consider only document-like URLs (no file extensions)
+const GRAPH_DOC_LIKE_ONLY = envB('GRAPH_DOC_LIKE_ONLY', true);
 const DISCOVER_MAX_PAGES = envN('DISCOVER_MAX_PAGES', 50);
 const DISCOVER_MAX_DEPTH = envN('DISCOVER_MAX_DEPTH', 1);
 const DISCOVER_ALLOW_REGEX = process.env.DISCOVER_ALLOW_REGEX || '';
@@ -127,6 +235,9 @@ function isAllowedByDiscover(url){
   const a = DISCOVER_ALLOW_RX ? DISCOVER_ALLOW_RX.test(url) : true;
   const d = DISCOVER_DENY_RX ? !DISCOVER_DENY_RX.test(url) : true;
   return a && d;
+}
+function isDocLikeUrl(u){
+  try { const p = new URL(u).pathname || '/'; return !/\.[a-z0-9]{2,6}$/i.test(p); } catch { return true; }
 }
 
 /* Same-site ENV */
@@ -875,10 +986,13 @@ async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
   const pageDirBase = (rel==='' ? path.join(outRoot,'index') : (rel ? path.join(outRoot,rel) : outRoot));
   const pageDir = path.join(pageDirBase, profileDirName);
   ensureDir(pageDir);
+  const relDir = (rel === '' ? 'index' : (rel || 'index'));
+  const pageLocalPath = path.posix.join(relDir, profileDirName);
 
   const record={
     url,
     relPath:rel,
+    localPath: pageLocalPath,
     profile:profile.name,
     status:'ok',
     mainStatus:null,
@@ -1080,8 +1194,91 @@ async function captureProfile(pageNum,url,outRoot,rel,profile,sharedAssetIndex){
     // Inject offline fallback shim (preserves app logic; only falls back when live fails)
     try { html = injectOfflineFallbackShim(html, sharedAssetIndex, page.url()); } catch {}
 
+    // Inject meta tag with SKU if we already extracted before writing HTML
+    try {
+      if (ENABLE_CATALOG) {
+        const prodPre = extractProductFromPage(html, record.finalURL || url);
+        if (prodPre) {
+          const skuPre = assignSkuForKey(prodPre.key);
+          if (skuPre) {
+            try {
+              const $ = cheerio.load(html, { decodeEntities: false });
+              $('head').prepend(`<meta name="x-archived-sku" content="${skuPre}">`);
+              html = $.html();
+            } catch {}
+          }
+        }
+      }
+    } catch {}
     ensureDir(pageDir);
     fs.writeFileSync(path.join(pageDir,'index.html'), html,'utf8');
+
+    // Also write a per-page JSON metadata file next to the HTML
+    try {
+      let title = '';
+      try { const $ = cheerio.load(html,{decodeEntities:false}); title = $('title').first().text().trim() || ''; } catch {}
+      const pageJson = {
+        url,
+        finalURL: record.finalURL || page.url?.() || undefined,
+        relPath: record.relPath || rel,
+        localPath: record.localPath,
+        profile: record.profile,
+        status: record.status,
+        mainStatus: record.mainStatus,
+        reasons: record.reasons,
+        durationMs: record.durationMs,
+        capturedAt: new Date().toISOString(),
+        title
+      };
+      // If catalog is enabled and this looks like a product page, extract and attach SKU reference
+      if (ENABLE_CATALOG) {
+        try {
+          const prod = extractProductFromPage(html, record.finalURL || url);
+          if (prod) {
+            const sku = assignSkuForKey(prod.key);
+            // Upsert into CATALOG (by sku)
+            const existingIdx = CATALOG.findIndex(e => e && e.sku === sku);
+            const entry = {
+              sku,
+              name: prod.name,
+              description: prod.description,
+              price: { amount: prod.price, currency: prod.currency },
+              images: prod.images,
+              source: { url: record.finalURL || url, relPath: record.relPath || rel }
+            };
+            if (existingIdx >= 0) CATALOG[existingIdx] = entry; else CATALOG.push(entry);
+            // Keep a reference in page json
+            pageJson.productRefs = [sku];
+          }
+        } catch {}
+      }
+      fs.writeFileSync(path.join(pageDir, 'index.json'), JSON.stringify(pageJson, null, 2), 'utf8');
+    } catch(e) { console.warn('[PAGE_JSON_ERR]', e.message); }
+
+    // Write/refresh a per-page redirect stub at the base directory so /<rel>/ resolves to the default profile.
+    // Preference: desktop wins; if desktop arrives later, it overwrites any earlier stub.
+    try {
+      const stubPath = path.join(pageDirBase, 'index.html');
+      const target = '/' + pageLocalPath.replace(/\\/g,'/') + '/';
+      const stubHtml = [
+        '<!doctype html>',
+        '<meta charset="utf-8">',
+        `<title>Redirect</title>`,
+        `<meta http-equiv="refresh" content="0; url=${target}">`,
+        `<link rel="canonical" href="${target}">`,
+        `<script>location.replace(${JSON.stringify(target)} + location.search + location.hash)</script>`,
+        `<p>Redirecting to <a href="${target}">${target}</a></p>`
+      ].join('\n');
+      if (profileDirName === 'desktop') {
+        // Desktop is the canonical default; overwrite to ensure it points to desktop.
+        fs.writeFileSync(stubPath, stubHtml, 'utf8');
+      } else if (!fs.existsSync(stubPath)) {
+        // No stub yet: create one pointing to the first captured profile.
+        fs.writeFileSync(stubPath, stubHtml, 'utf8');
+      }
+    } catch (e) {
+      console.warn('[STUB_REDIRECT_ERR]', e.message);
+    }
 
     await browser.close();
   }catch(e){
@@ -1150,8 +1347,9 @@ function ensureRootIndex(outDir, manifest){
   } else {
     rel = (rel || '').replace(/^\/+/, '');
   }
-  // If FLATTEN_ROOT_INDEX was used (rel==='' case), saved content lives under /index/<profile>/, so redirect to /index/
-  const target = '/' + (rel ? rel + '/' : 'index/');
+  // Compute actual target from localPath if available; this points to the profile directory.
+  const fallback = '/' + (rel ? rel + '/' : 'index/');
+  const target = (primary && primary.localPath) ? ('/' + String(primary.localPath).replace(/^\/+/,'') + '/') : fallback;
   const title = (() => {
     try { return new URL(primary.url).hostname + ' snapshot'; } catch { return 'Snapshot'; }
   })();
@@ -1207,8 +1405,33 @@ function writeAutoPaymentMap(outDir){
   }
 }
 
+// SKU-based payment map derived from captured catalog; merges into _payment-map.json under bySku
+function writeSkuPaymentMap(outDir){
+  if (!GENERATE_PAYMENT_MAP_FROM_CATALOG) return;
+  if (!ENABLE_CATALOG || !Array.isArray(CATALOG) || !CATALOG.length) return;
+  const file = path.join(outDir, '_payment-map.json');
+  let obj = { provider: PAYMENT_PROVIDER, target: PAYMENT_TARGET, map: {}, bySku: {} };
+  try{
+    if (fs.existsSync(file)){
+      const current = JSON.parse(fs.readFileSync(file,'utf8')) || {};
+      obj.provider = current.provider || obj.provider;
+      obj.target = current.target || obj.target;
+      obj.map = current.map || {};
+      obj.bySku = current.bySku || {};
+    }
+  }catch{}
+  let added = 0;
+  for (const p of CATALOG){
+    const sku = p && p.sku; if (!sku) continue;
+    if (!obj.bySku[sku]){ obj.bySku[sku] = PAYMENT_PLACEHOLDER; added++; }
+  }
+  if (added>0){
+    try { fs.writeFileSync(file, JSON.stringify(obj, null, 2)); console.log('[PAYMENT_MAP_SKU]', 'updated', added, 'entries'); } catch(e){ console.warn('[PAYMENT_MAP_SKU_ERR]', e.message); }
+  }
+}
+
 /* ------------ Main ------------ */
-(async()=>{
+;(async()=>{
   const seeds=readSeeds(seedsFile);
   console.log(`[ARCHIVER_SEEDS] count=${seeds.length}`);
   if(!seeds.length){ console.error('No seeds'); process.exit(2); }
@@ -1221,22 +1444,130 @@ function writeAutoPaymentMap(outDir){
 
   ensureDir(outputRoot);
   console.log(`ARCHIVER start: urls=${seeds.length} engine=${ENGINE} concurrency=${CONCURRENCY} profiles=${PROFILES_LIST.join(',')}`);
+  // Load existing catalog (if any) to maintain stable SKUs
+  try { loadExistingCatalog(outputRoot); } catch {}
 
-  // Internal discovery (BFS) before capture when enabled
+  // Determine capture order
   let finalSeeds = seeds.slice();
-  if (DISCOVER_IN_ARCHIVER) {
+  if (USE_DISCOVERY_GRAPH) {
+    try {
+      let gPath = path.join(outputRoot, '_crawl', 'graph.json');
+      if (!fs.existsSync(gPath)) {
+        const alt = path.join(outputRoot, '_plan', 'graph.json');
+        if (fs.existsSync(alt)) gPath = alt;
+      }
+      if (fs.existsSync(gPath)) {
+        const g = JSON.parse(fs.readFileSync(gPath, 'utf8')) || {};
+        const nodes = g.nodes || {};
+        const edges = Array.isArray(g.edges) ? g.edges : [];
+        const start = g.start || PRIMARY_START_URL || seeds[0] || '';
+        const adj = new Map();
+        for (const e of edges) {
+          const from = e && e.from; const to = e && e.to; if (!from || !to) continue;
+          if (!adj.has(from)) adj.set(from, new Set());
+          adj.get(from).add(to);
+        }
+        // Prefill product IDs from graph nodes (OpenCart/Woo common params)
+        try {
+          for (const u of Object.keys(nodes)) {
+            try {
+              const U = new URL(u);
+              const route = (U.searchParams.get('route')||'').toLowerCase();
+              let pid = '';
+              if (/product\/product/.test(route)) pid = String(U.searchParams.get('product_id')||'');
+              if (!pid) pid = String(U.searchParams.get('add-to-cart')||'');
+              if (pid && !FOUND_PRODUCT_IDS.has(pid)) FOUND_PRODUCT_IDS.set(pid, { url: u, title: '' });
+            } catch {}
+          }
+        } catch {}
+        let ordered = [];
+        if (start && adj.size) {
+          const seen = new Set([start]);
+          const q = [start];
+          while (q.length && ordered.length < DISCOVER_MAX_PAGES) {
+            const cur = q.shift();
+            let ok = true;
+            try { if (!isSameSite(cur)) ok = false; } catch {}
+            if (ok && DISCOVER_DENY_REGEX && new RegExp(DISCOVER_DENY_REGEX,'i').test(cur)) ok = false;
+            if (ok && DISCOVER_ALLOW_REGEX && !(new RegExp(DISCOVER_ALLOW_REGEX,'i').test(cur))) ok = false;
+            if (ok) ordered.push(cur);
+            const nexts = Array.from(adj.get(cur) || []);
+            for (const n of nexts) { if (!seen.has(n)) { seen.add(n); q.push(n); } }
+          }
+        }
+        if (!ordered.length) {
+          ordered = Object.keys(nodes).sort((a,b)=>{
+            const da = (nodes[a] && nodes[a].depth)||9999;
+            const db = (nodes[b] && nodes[b].depth)||9999;
+            if (da!==db) return da-db; return String(a).localeCompare(String(b));
+          }).slice(0, DISCOVER_MAX_PAGES);
+        }
+        // If enabled, rebuild ordered as full set of doc-like nodes sorted by depth then URL
+        if (DISCOVER_USE_GRAPH_FULL) {
+          const all = Object.keys(nodes).filter(u => {
+            if (GRAPH_DOC_LIKE_ONLY && !isDocLikeUrl(u)) return false;
+            try { if (!isSameSite(u)) return false; } catch {}
+            if (DISCOVER_DENY_REGEX && new RegExp(DISCOVER_DENY_REGEX,'i').test(u)) return false;
+            if (DISCOVER_ALLOW_REGEX && !(new RegExp(DISCOVER_ALLOW_REGEX,'i').test(u))) return false;
+            return true;
+          });
+          all.sort((a,b)=>{
+            const da=(nodes[a]?.depth)||9999, db=(nodes[b]?.depth)||9999;
+            if(da!==db) return da-db; return String(a).localeCompare(String(b));
+          });
+          ordered = all;
+        }
+        try {
+          if (PRIMARY_START_URL) {
+            const set = new Set(ordered);
+            set.delete(PRIMARY_START_URL);
+            ordered = [PRIMARY_START_URL, ...set];
+          }
+        } catch {}
+        if (ordered.length) {
+          finalSeeds = ordered;
+          console.log('[DISCOVER_GRAPH] using prebuilt graph for capture order', { nodes: Object.keys(nodes).length || 0, edges: edges.length || 0, seeds: finalSeeds.length });
+        }
+      }
+    } catch (e) {
+      console.warn('[DISCOVER_GRAPH_ERR]', e.message);
+    }
+  }
+
+  // Internal discovery (BFS) before capture when enabled and no graph-derived order was set
+  if (DISCOVER_IN_ARCHIVER && finalSeeds.length === seeds.length) {
     console.log(`[DISCOVER] start inside archiver maxPages=${DISCOVER_MAX_PAGES} maxDepth=${DISCOVER_MAX_DEPTH}`);
-    const crawlDir = path.join(outputRoot, '_crawl');
-    ensureDir(crawlDir);
+  const crawlDir = path.join(outputRoot, '_crawl');
+  ensureDir(crawlDir);
+    // Discovery graph: nodes (url -> depth) and edges (from -> to with optional anchor text)
+    const graphNodeDepth = new Map();
+    const graphEdges = [];
+    const edgeSeen = new Set();
+    const parentOf = new Map(); // childUrl -> parentUrl (first discoverer)
+    function recordNode(u, d){
+      if(!u) return;
+      const cur = graphNodeDepth.get(u);
+      if(cur==null || d < cur) graphNodeDepth.set(u, d);
+    }
+    function recordEdge(from, to, text, dFrom){
+      if(!from || !to) return;
+      const key = from + ' -> ' + to;
+      if(edgeSeen.has(key)) return;
+      edgeSeen.add(key);
+      const t = (text||'').replace(/\s+/g,' ').trim().slice(0, 160);
+      graphEdges.push({ from, to, text: t });
+      if(typeof dFrom==='number') recordNode(from, dFrom);
+    }
     const visited = new Set();
     const queue = [];
     const depths = new Map();
-    const pushQ = (u, d) => {
+    const pushQ = (u, d, parent) => {
       if (!u) return;
       if (visited.has(u)) return;
       if (d > DISCOVER_MAX_DEPTH) return;
       visited.add(u);
       depths.set(u, d);
+      if (parent!=null && !parentOf.has(u)) parentOf.set(u, parent);
       queue.push({ url: u, depth: d });
     };
     for (const s of seeds) pushQ(s, 0);
@@ -1285,10 +1616,16 @@ function writeAutoPaymentMap(outDir){
 
         // Extract anchors (DOM if navigated, fallback to regex from page.content())
         let hrefs = [];
+        let linkPairs = [];
         try {
           if (navigated) {
             try { await page.waitForSelector('a[href]', { timeout: 5000 }); } catch {}
-            hrefs = await page.$$eval('a[href]', as => as.map(a => a.getAttribute('href')).filter(Boolean));
+            // Collect href + anchor text to preserve some context for the graph
+            linkPairs = await page.$$eval('a[href]', as => as.map(a => ({
+              href: a.getAttribute('href'),
+              text: (a.textContent||'').replace(/\s+/g,' ').trim().slice(0,160)
+            })).filter(x=>x && x.href));
+            hrefs = linkPairs.map(x=>x.href);
           }
         } catch {}
         if (!hrefs.length) {
@@ -1302,8 +1639,19 @@ function writeAutoPaymentMap(outDir){
         // Normalize and enqueue
         const baseOrigin = (()=>{ try { return new URL(url).origin; } catch { return ''; } })();
         const normed = [];
+        const textByAbs = new Map();
+        const pairMap = new Map();
+        try{ for(const lp of linkPairs){
+          try{ const abs = new URL(lp.href, baseOrigin).toString();
+            textByAbs.set(abs, textByAbs.get(abs)||lp.text||'');
+            pairMap.set(lp.href, abs);
+          }catch{}
+        } }catch{}
         for (const raw of hrefs) {
-          let abs; try { abs = new URL(raw, baseOrigin).toString(); } catch { continue; }
+          let abs;
+          try {
+            abs = pairMap.has(raw) ? pairMap.get(raw) : new URL(raw, baseOrigin).toString();
+          } catch { continue; }
           // strip hash
           try { const u = new URL(abs); u.hash=''; abs=u.toString(); } catch {}
           // same-site check
@@ -1311,6 +1659,8 @@ function writeAutoPaymentMap(outDir){
           // For traversal: respect deny strictly, but don't require allow to expand (we may need intermediates)
           if (DISCOVER_DENY_RX && DISCOVER_DENY_RX.test(abs)) continue;
           normed.push(abs);
+          // Graph: record edge from current URL -> normalized absolute with anchor text when available
+          try { recordEdge(url, abs, textByAbs.get(abs)||'', depth); } catch {}
         }
         // Record (only if allowed) and expand next depth
         if (!DISCOVER_ALLOW_RX && !DISCOVER_DENY_RX) {
@@ -1319,10 +1669,12 @@ function writeAutoPaymentMap(outDir){
           // Allow recording only when the current URL matches filters; seed (depth 0) is not forced
           if (isAllowedByDiscover(url)) discovered.push(url);
         }
+        // Graph: ensure node (url) is recorded with depth
+        try { recordNode(url, depth); } catch {}
         if (depth < DISCOVER_MAX_DEPTH) {
           for (const n of normed) {
             if (discovered.length + queue.length >= DISCOVER_MAX_PAGES) break;
-            if (!visited.has(n)) pushQ(n, depth + 1);
+            if (!visited.has(n)) pushQ(n, depth + 1, url);
           }
         }
         console.log(`[DISCOVER] d=${depth} url=${url} +links=${normed.length} total=${discovered.length}`);
@@ -1339,6 +1691,31 @@ function writeAutoPaymentMap(outDir){
       } catch {}
       // Persist for transparency
       try { fs.writeFileSync(path.join(crawlDir, 'urls.txt'), finalSeeds.join('\n') + '\n', 'utf8'); } catch {}
+      // Persist link graph (nodes + edges)
+      try {
+        const nodes = {};
+        for (const [u,d] of graphNodeDepth.entries()) nodes[u] = { depth: d };
+        const tree = {};
+        for (const [child, parent] of parentOf.entries()) { tree[child] = parent; }
+        const graph = {
+          start: PRIMARY_START_URL || seeds[0] || '',
+          counts: { nodes: Object.keys(nodes).length, edges: graphEdges.length },
+          nodes,
+          edges: graphEdges,
+          tree,
+          config: {
+            maxDepth: DISCOVER_MAX_DEPTH,
+            maxPages: DISCOVER_MAX_PAGES,
+            allow: DISCOVER_ALLOW_REGEX || null,
+            deny: DISCOVER_DENY_REGEX || null,
+            sameSiteMode: SAME_SITE_MODE
+          },
+          createdAt: new Date().toISOString()
+        };
+        fs.writeFileSync(path.join(crawlDir, 'graph.json'), JSON.stringify(graph, null, 2), 'utf8');
+      } catch(e) {
+        console.warn('[DISCOVER_GRAPH_ERR]', e.message);
+      }
       console.log(`[DISCOVER_DONE] seeds=${finalSeeds.length}`);
       await browser.close();
     } catch (e) {
@@ -1403,6 +1780,11 @@ function writeAutoPaymentMap(outDir){
 
   // Write/merge _payment-map.json with placeholders for discovered product IDs
   try { writeAutoPaymentMap(outputRoot); } catch {}
+
+  // Persist catalog + SKU map
+  try { saveCatalog(outputRoot); console.log('[CATALOG] entries=', CATALOG.length, 'nextSku=', SKU_MAP.next); } catch {}
+  // Derive/merge SKU-based payment mappings for host-time rewrites
+  try { writeSkuPaymentMap(outputRoot); } catch {}
 
   if(failures.length){
     console.log('Sample failures:');

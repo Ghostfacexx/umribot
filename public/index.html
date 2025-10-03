@@ -52,8 +52,8 @@ summary{cursor:pointer;font-weight:600}
     <div class="col">
       <label class="opt"><input type="checkbox" id="optProfiles" checked>desktop,mobile</label>
       <label class="opt"><input type="checkbox" id="optAggressive">aggressive</label>
-  <label class="opt" title="Save assets and pages using original paths for a true mirror"><input type="checkbox" id="optPreserve" checked>preserve paths</label>
-        <label class="opt"><input type="checkbox" id="optBlockTrackers"> Block analytics/ads/pixels</label>
+      <label class="opt" title="Save assets and pages using original paths for a true mirror"><input type="checkbox" id="optPreserve" checked>preserve paths</label>
+      <label class="opt"><input type="checkbox" id="optBlockTrackers"> Block analytics/ads/pixels</label>
       <label class="opt"><input type="checkbox" id="optScroll">scroll passes=2</label>
     </div>
     <div class="col">
@@ -156,10 +156,11 @@ summary{cursor:pointer;font-weight:600}
         <label class="opt"><input type="checkbox" id="advMirrorCross">mirror cross-origin</label>
         <label class="opt"><input type="checkbox" id="advIncludeCO">include cross-origin</label>
         <label class="opt"><input type="checkbox" id="advRewriteHtmlAssets" checked>rewrite html assets</label>
-  <label class="opt"><input type="checkbox" id="advFlattenRoot">flatten root index</label>
+        <label class="opt"><input type="checkbox" id="advFlattenRoot">flatten root index</label>
         <label class="opt" title="Workaround for sites that break over HTTP/2 during crawl"><input type="checkbox" id="advDisableHttp2">disable HTTP/2 (crawl)</label>
-  <label class="opt" title="Skip external crawler and discover links inside archiver (experimental)"><input type="checkbox" id="advDiscoverInArchiver">discover inside archiver</label>
-  <label class="opt" title="Plan-first: build an explicit seed list (home, categories, products) before capture"><input type="checkbox" id="advPlanFirst">plan-first mapper</label>
+        <label class="opt" title="Skip external crawler and discover links inside archiver (experimental)"><input type="checkbox" id="advDiscoverInArchiver">discover inside archiver</label>
+        <label class="opt" title="Deep completion: categories + products; runs until no new meaningful pages remain"><input type="checkbox" id="advDiscoverComplete">complete discovery (categories+products)</label>
+        <label class="opt" title="Plan-first: build an explicit seed list (home, categories, products) before capture"><input type="checkbox" id="advPlanFirst">plan-first mapper</label>
       </div>
 
       <input id="advInternalRegex" placeholder="internal rewrite regex (optional)">
@@ -343,7 +344,6 @@ summary{cursor:pointer;font-weight:600}
 <script src="/static/js/prep-run.js?v=20250930"></script>
 <script src="/static/js/prime-products.js?v=20250930"></script>
 <script src="/static/js/delete-run-ui.js?v=20250930"></script>
-<script src="/static/js/products-only-ui.js?v=20250930"></script>
 <script src="/static/js/woo-fast-preset.js?v=20250930"></script>
 </body>
 </html>

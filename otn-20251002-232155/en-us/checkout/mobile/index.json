@@ -1,0 +1,13 @@
+{
+  "url": "https://www.theoutnet.com/en-us/checkout",
+  "finalURL": "https://www.theoutnet.com/en-us/checkout",
+  "relPath": "en-us/checkout",
+  "localPath": "en-us/checkout/mobile",
+  "profile": "mobile",
+  "status": "ok",
+  "mainStatus": 200,
+  "reasons": [],
+  "durationMs": 0,
+  "capturedAt": "2025-10-02T23:47:14.128Z",
+  "title": "Shopping Bag | THE OUTNET"
+}

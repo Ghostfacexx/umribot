@@ -1,0 +1,13 @@
+{
+  "url": "https://www.theoutnet.com/account",
+  "finalURL": "https://www.theoutnet.com/en-us/account",
+  "relPath": "account",
+  "localPath": "account/mobile",
+  "profile": "mobile",
+  "status": "ok",
+  "mainStatus": 200,
+  "reasons": [],
+  "durationMs": 0,
+  "capturedAt": "2025-10-02T23:45:22.334Z",
+  "title": "Manage account | The Outnet"
+}

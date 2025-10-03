@@ -96,6 +96,13 @@ function contentType(p) {
   return mimeMap[path.extname(p).toLowerCase()] || 'application/octet-stream';
 }
 
+function fallbackLocalPath(m) {
+  const rel = (m && m.relPath != null) ? String(m.relPath) : '';
+  const profile = (m && m.profile) ? String(m.profile) : 'desktop';
+  const relDir = (rel === '' ? 'index' : (rel || 'index'));
+  return relDir.replace(/\\/g,'/').replace(/^\/+/, '') + '/' + profile;
+}
+
 /* Simple LRU-ish cache */
 const cache = {
   bytes:0,
@@ -231,7 +238,7 @@ function browsePage(query) {
   for (const m of manifest) {
     const u = m.url;
     if (q && !u.toLowerCase().includes(q)) continue;
-    const local = '/' + m.localPath + '/';
+    const local = '/' + (m.localPath || fallbackLocalPath(m)) + '/';
     const status = m.status;
     const assets = m.assets;
     rows.push(`<tr>
@@ -270,7 +277,7 @@ input[type=text]{width:260px;padding:4px;}
 // -------- Search JSON endpoint --------
 function searchManifest(q) {
   const qq = q.toLowerCase();
-  return manifest.filter(m => m.url.toLowerCase().includes(qq) || ('/'+m.localPath+'/').includes(qq)).slice(0,500);
+  return manifest.filter(m => m.url.toLowerCase().includes(qq) || ('/'+(m.localPath || fallbackLocalPath(m))+'/').includes(qq)).slice(0,500);
 }
 
 // -------- Request Handler --------

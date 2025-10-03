@@ -139,8 +139,8 @@
     if(id('optProfiles').checked) opts.profiles='desktop,mobile';
     if(id('optAggressive').checked) opts.aggressiveCapture=true;
     if(id('optPreserve').checked) opts.preserveAssetPaths=true;
-  // Block trackers (analytics/ads/pixels)
-  if(id('optBlockTrackers')?.checked) opts.blockTrackers = true;
+    // Block trackers (analytics/ads/pixels)
+    if(id('optBlockTrackers')?.checked) opts.blockTrackers = true;
     if(id('optScroll').checked) { opts.scrollPasses=2; }
 
     // Auto-expand
@@ -158,8 +158,8 @@
     opts.engine = asStr(id('advEngine')) || 'chromium';
     opts.concurrency = asNum(id('advConcurrency'),2);
     opts.headless = (id('advHeadless')?.value!=='false');
-  opts.stealth = !!(document.getElementById('advStealth')?.checked);
-  const proxyStr = asStr(id('advProxy')); if(proxyStr) opts.proxy = proxyStr;
+    opts.stealth = !!(document.getElementById('advStealth')?.checked);
+    const proxyStr = asStr(id('advProxy')); if(proxyStr) opts.proxy = proxyStr;
 
     opts.pageWaitUntil = asStr(id('advWaitUntil')) || 'domcontentloaded';
     opts.waitExtra     = asNum(id('advWaitExtra'),700);
@@ -178,10 +178,12 @@
     opts.includeCrossOrigin  = asBool(id('advIncludeCO'));
     opts.rewriteHtmlAssets   = asBool(id('advRewriteHtmlAssets'));
     opts.flattenRoot         = asBool(id('advFlattenRoot'));
-  // Crawl-only/auto-expand helper flag for tricky HTTP/2 sites
-  opts.disableHttp2        = asBool(id('advDisableHttp2'));
+    // Crawl-only/auto-expand helper flag for tricky HTTP/2 sites
+    opts.disableHttp2        = asBool(id('advDisableHttp2'));
     // Let archiver perform internal discovery when crawler struggles
     opts.discoverInArchiver = asBool(id('advDiscoverInArchiver'));
+    // NEW: Deep completion mode (categories + products)
+    opts.discoverComplete    = asBool(id('advDiscoverComplete'));
     // Plan-first mapper: build explicit seed list before archiving
     opts.planFirst          = asBool(id('advPlanFirst'));
 
@@ -346,7 +348,7 @@
     if(!urls.length){ alert('Enter at least one URL'); return; }
     // store first url in recent
     pushRecentSeed(urls[0]);
-  const options = buildOptions();
+    const options = buildOptions();
     // If planSelected has entries, send as planSeeds to use explicitly
     if(planSelected.length){ options.planSeeds = planSelected.slice(); }
     id('btnStart').disabled=true; id('btnStop').disabled=false;
@@ -369,7 +371,7 @@
     if(!startUrls){ alert('Enter crawl seeds'); return; }
     // store first seed
     pushRecentSeed(startUrls.split(/\n/)[0]);
-  const options = buildOptions();
+    const options = buildOptions();
     const crawlOptions = {
       maxDepth:   asNum(id('crawlDepth'),3),
       maxPages:   asNum(id('crawlMaxPages'),200),
@@ -430,8 +432,8 @@
         logHost('Hosting '+j.runId+' @ '+j.url);
         id('btnStopHost').disabled=false;
         const openBtn = id('btnOpenHost');
-  if(openBtn){ openBtn.disabled=false; openBtn.dataset.url = j.url; }
-  // Auto-open in a new tab/window (Codespaces will open a forwarded URL)
+        if(openBtn){ openBtn.disabled=false; openBtn.dataset.url = j.url; }
+        // Auto-open in a new tab/window (Codespaces will open a forwarded URL)
         try { if(j.url) window.open(j.url, '_blank', 'noopener'); } catch {}
       }).catch(e=>logHost('Host exception '+e.message));
   };

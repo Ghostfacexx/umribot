@@ -1,0 +1,2 @@
+(window.webpackJsonp=window.webpackJsonp||[]).push([[4],{brsa:function(n,o,s){"use strict";s.r(o),s("IMfn").b.agent.footerScript()}},[["brsa",1,0,2]]]);
+//# sourceMappingURL=monitoringFooter-24f861e3.js.map

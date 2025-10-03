@@ -18,6 +18,13 @@ public/index.backup.*.html
 *.tar.gz
 hosting_packages/
 
+# Captured runs (do not commit)
+otn-*/
+otn-local-test-*/
+*/manifest.partial.jsonl
+*/_crawl/
+*/variants/
+
 # Local credentials / data
 cookies.txt
 proxies.json

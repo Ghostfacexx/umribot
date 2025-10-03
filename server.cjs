@@ -22,6 +22,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const express = require('express');
+const cp = require('child_process');
 
 const ROOT = path.resolve(process.env.ARCHIVE_ROOT || '');
 const PORT = parseInt(process.env.PORT || '8081', 10);
@@ -31,6 +32,14 @@ const DISABLE_HTML_INJECT = String(process.env.DISABLE_HTML_INJECT || '').toLowe
 const DISABLE_FETCH_CACHE = String(process.env.DISABLE_FETCH_CACHE || '').toLowerCase() === 'true';
 // When true, redirect commerce interactions (cart/checkout/payment) to live origin (disabled by default per user request)
 const LIVE_PASSTHROUGH = String(process.env.LIVE_PASSTHROUGH || 'false').toLowerCase() === 'true';
+// Optional: enable graph.json-aware routing and client-side navigation guard
+const ENABLE_GRAPH_ROUTING = String(process.env.ENABLE_GRAPH_ROUTING || 'true').toLowerCase() !== 'false';
+// Optional: prevent SPA hydration/scripts from mutating SSR content (helps when client JS replaces lists with "No items found")
+// Default true for archive browsing; set to false if you want full interactivity
+const DISABLE_SPA_SCRIPTS = String(process.env.DISABLE_SPA_SCRIPTS || 'true').toLowerCase() !== 'false';
+// Optional: run bake-static on host start and expose live logs via SSE
+const BAKE_ON_HOST = String(process.env.BAKE_ON_HOST || 'true').toLowerCase() !== 'false';
+const BAKE_SCRIPT = path.join(__dirname, 'tools', 'bake-static.cjs');
 
 if (!ROOT || !fs.existsSync(ROOT)) {
   console.error('[SERVER_FATAL] ARCHIVE_ROOT not found:', ROOT);
@@ -137,6 +146,115 @@ function guessExtByCT(ct, fallback) {
 }
 const EXT_RE = /\.(?:js|mjs|cjs|css|map|json|ico|png|jpe?g|webp|gif|svg|woff2?|ttf|otf|mp4|webm|wav|mp3)$/i;
 
+// Build an index of captured HTML directories (paths that contain an index.html under desktop/mobile or flat)
+function buildHtmlIndex(root){
+  const set = new Set();
+  function addFrom(absFile){
+    try{
+      if(!absFile) return;
+      let rel = path.relative(root, path.dirname(absFile));
+      if (!rel) return;
+      // strip variant folder if present
+      const parts = rel.split(path.sep);
+      const last = parts[parts.length-1];
+      if(last==='desktop' || last==='mobile'){ parts.pop(); }
+      // rebuild web path
+      const clean = parts.join('/');
+      const web = '/' + (clean ? clean + '/' : '');
+      set.add(web);
+    }catch{}
+  }
+  function walk(dir){
+    let list;
+    try{ list = fs.readdirSync(dir,{ withFileTypes:true }); }catch{ return; }
+    let hasIndex = false;
+    for(const e of list){ if(e.isFile() && e.name==='index.html') { hasIndex = true; break; } }
+    if(hasIndex){ addFrom(path.join(dir,'index.html')); }
+    for(const e of list){ if(e.isDirectory()){ walk(path.join(dir, e.name)); } }
+  }
+  walk(root);
+  return set;
+}
+
+function loadGraphPaths(root){
+  if(!ENABLE_GRAPH_ROUTING) return new Set();
+  const set = new Set();
+  try{
+    const gp = path.join(root, '_crawl', 'graph.json');
+    const txt = fs.readFileSync(gp,'utf8');
+    const j = JSON.parse(txt);
+    if(j && j.nodes && typeof j.nodes === 'object'){
+      for(const u of Object.keys(j.nodes)){
+        try{
+          const p = new URL(u).pathname || '/';
+          const norm = p.endsWith('/')? p : (p + '/');
+          set.add(norm);
+        }catch{}
+      }
+    }
+  }catch{}
+  return set;
+}
+const HTML_INDEX = buildHtmlIndex(ROOT);
+const GRAPH_PATHS = loadGraphPaths(ROOT);
+if (ENABLE_GRAPH_ROUTING) {
+  console.log('[SERVER] Graph routing:', GRAPH_PATHS.size ? ('paths=' + GRAPH_PATHS.size) : 'no graph.json');
+}
+
+// ---- Bake static integration (SSE logs) ----
+let bakeProc = null;
+let bakeClients = new Set();
+let bakeLogBuf = [];
+const BAKE_LOG_MAX = 500;
+let bakeState = { running:false, startedAt:0, finishedAt:0, scanned:null, updated:null, lastCode:null };
+
+function bakeLog(line){
+  line = String(line||'').replace(/\r/g,'');
+  const parts = line.split('\n');
+  for (let L of parts){ if(!L) continue; bakeLogBuf.push(L); if (bakeLogBuf.length>BAKE_LOG_MAX) bakeLogBuf.shift();
+    const data = 'data: ' + L.replace(/\n/g,' ') + '\n\n';
+    for(const res of bakeClients){ try{ res.write(data);}catch(e){} }
+  }
+}
+function startBake(reason){
+  if (bakeProc) return false;
+  if (!fs.existsSync(BAKE_SCRIPT)) { bakeLog('[BAKE] script not found: '+BAKE_SCRIPT); return false; }
+  bakeState = { running:true, startedAt:Date.now(), finishedAt:0, scanned:null, updated:null, lastCode:null };
+  bakeLog(`[BAKE] start reason=${reason||'manual'} root=${ROOT}`);
+  try{
+    bakeProc = cp.spawn(process.execPath, [BAKE_SCRIPT, ROOT], { stdio:['ignore','pipe','pipe'] });
+    bakeProc.stdout.on('data', d=> bakeLog(d.toString()));
+    bakeProc.stderr.on('data', d=> bakeLog('[err] '+d.toString()));
+    bakeProc.on('close', code=>{
+      bakeState.running=false; bakeState.finishedAt=Date.now(); bakeState.lastCode=code;
+      // try to parse summary
+      try{ const m = (bakeLogBuf.slice(-5).join('\n').match(/\[BAKE\]\s*scanned:\s*(\d+)\s*updated:\s*(\d+)/i)); if(m){ bakeState.scanned=Number(m[1]); bakeState.updated=Number(m[2]); } }catch{}
+      bakeLog('[BAKE] exit code=' + code);
+      bakeProc=null;
+    });
+    return true;
+  }catch(e){ bakeLog('[BAKE_ERR] spawn: '+(e&&e.message||e)); bakeProc=null; bakeState.running=false; return false; }
+}
+
+app.get('/__bake/logs', (req,res)=>{
+  res.setHeader('Content-Type','text/event-stream');
+  res.setHeader('Cache-Control','no-cache');
+  res.setHeader('Connection','keep-alive');
+  res.flushHeaders && res.flushHeaders();
+  // send backlog
+  for(const L of bakeLogBuf){ res.write('data: '+L.replace(/\n/g,' ')+'\n\n'); }
+  bakeClients.add(res);
+  req.on('close', ()=>{ try{ bakeClients.delete(res); }catch(e){} });
+});
+app.get('/__bake/status', (req,res)=>{
+  res.json({ running:bakeState.running, startedAt:bakeState.startedAt, finishedAt:bakeState.finishedAt, scanned:bakeState.scanned, updated:bakeState.updated, lastCode:bakeState.lastCode });
+});
+app.post('/__bake/start', (req,res)=>{
+  if (bakeState.running) return res.status(409).json({ running:true });
+  const ok = startBake('api');
+  return res.json({ started: !!ok });
+});
+
 // Resolve HTML variant (supports query-string routers like index.php?route=...)
 function resolveHtml(reqOrPath) {
   const hasReq = typeof reqOrPath === 'object' && reqOrPath !== null;
@@ -221,6 +339,45 @@ function resolveHtml(reqOrPath) {
       if (hit) return hit;
     }
   }
+
+  // Fallback: if graph.json is present, try the longest graph node prefix that maps to a captured page
+  if (ENABLE_GRAPH_ROUTING && GRAPH_PATHS.size) {
+    try {
+      const reqPath = '/' + relDir.replace(/\\/g,'/');
+      // candidates: graph paths that are a prefix of the request path (path-segment aligned)
+      const cands = [];
+      for (const gp of GRAPH_PATHS) {
+        if (reqPath === gp || reqPath.startsWith(gp)) cands.push(gp);
+      }
+      cands.sort((a,b)=> b.length - a.length);
+      for (const gp of cands) {
+        const rel = gp.replace(/^\/+|\/+$/g,'');
+        const base2 = path.join(ROOT, rel);
+        const ord2 = (DEFAULT_VARIANT === 'mobile')
+          ? [path.join(base2, 'mobile', 'index.html'), path.join(base2, 'desktop', 'index.html'), path.join(base2, 'index.html')]
+          : [path.join(base2, 'desktop', 'index.html'), path.join(base2, 'mobile', 'index.html'), path.join(base2, 'index.html')];
+        const hit = tryFiles(ord2);
+        if (hit) return hit;
+      }
+    } catch {}
+  }
+
+  // Last-resort: walk up path segments and try parents that exist in HTML index
+  try{
+    let parts = relDir.split('/').filter(Boolean);
+    while(parts.length){
+      const web = '/' + parts.join('/') + '/';
+      if (HTML_INDEX.has(web)){
+        const base3 = path.join(ROOT, parts.join('/'));
+        const ord3 = (DEFAULT_VARIANT === 'mobile')
+          ? [path.join(base3, 'mobile', 'index.html'), path.join(base3, 'desktop', 'index.html'), path.join(base3, 'index.html')]
+          : [path.join(base3, 'desktop', 'index.html'), path.join(base3, 'mobile', 'index.html'), path.join(base3, 'index.html')];
+        const parentHit = tryFiles(ord3);
+        if (parentHit) return parentHit;
+      }
+      parts.pop();
+    }
+  }catch{}
 
   return null;
 }
@@ -571,6 +728,8 @@ app.get(/.*/, (req, res, next) => {
 
   try {
     let html = fs.readFileSync(resolved, 'utf8');
+    // Build a small client-side guard to avoid SPA routers flipping to client 404s
+    const CAPTURED = Array.from(HTML_INDEX);
     const injectTag = `<script>(function(){try{
       function rm(q,root){(root||document).querySelectorAll(q).forEach(function(n){try{n.remove()}catch(e){}})}
       function unlock(){
@@ -587,6 +746,39 @@ app.get(/.*/, (req, res, next) => {
           });
         }catch(e){}
       }
+      // Optionally freeze SPA to preserve SSR content (stop client JS from wiping lists)
+      try{
+        var FREEZE = ${DISABLE_SPA_SCRIPTS ? 'true' : 'false'};
+        if(FREEZE){
+          // 1) Disable dynamic script injection via document.createElement('script')
+          try{
+            var _ce = Document.prototype.createElement;
+            Document.prototype.createElement = function(tag){ var el = _ce.apply(this, arguments); try{ if(String(tag).toLowerCase()==='script'){ Object.defineProperty(el,'src',{set:function(){},get:function(){return ''}}); el.type='application/ld+json'; } }catch(e){} return el; };
+          }catch(e){}
+          // 2) Neutralize existing <script src> that match app bundles by rewriting type
+          try{
+            var blockers = [/\/assets\/_next\//, /\/assets\/[A-Za-z0-9].*\.js$/, /ton-[a-z0-9]+\.js$/i, /vendors~[A-Za-z0-9_-]+\.js$/i, /PLPContainerTON.*\.js$/i, /PDPContainerTON.*\.js$/i, /DAZContainerTON.*\.js$/i, /SearchOverlay.*\.js$/i];
+            document.querySelectorAll('script[src]')?.forEach(function(s){ try{ var src=s.getAttribute('src')||''; if(blockers.some(function(rx){ return rx.test(src); })){ s.setAttribute('type','application/ld+json'); s.removeAttribute('src'); } }catch(e){} });
+          }catch(e){}
+          // 3) Prevent eval/new Function which many loaders use
+          try{ window.eval = function(){ return ''; }; }catch(e){}
+          try{ window.Function = function(){ return function(){}; }; }catch(e){}
+        }
+      }catch(e){}
+      
+      // Graph/captured-path aware navigation: force full navigations to captured pages
+      try{
+        var CAP = ${JSON.stringify(CAPTURED)};
+        var CAPSET = new Set(Array.isArray(CAP)?CAP:[]);
+        function norm(p){ try{ p = String(p||'/'); }catch(e){ p='/'; } if(!p.startsWith('/')){ try{ p = new URL(p, location.href).pathname; }catch(_){ p = '/'; } } if(!p.endsWith('/')) p+='/'; return p; }
+        function best(p){ p = norm(p); if(CAPSET.has(p)) return p; var seg = p.replace(/\/+$/,'').split('/'); while(seg.length>1){ seg.pop(); var cand = seg.join('/') + '/'; if(CAPSET.has(cand)) return cand; } return '/'; }
+        function go(u){ try{ var url = new URL(u, location.href); var p = best(url.pathname); var out = p + (url.search||'') + (url.hash||''); location.href = out; }catch(e){ location.href = '/'; } }
+        // Intercept same-origin anchor clicks early to avoid SPA hijack
+        document.addEventListener('click', function(ev){ try{ var a = ev.target && ev.target.closest && ev.target.closest('a[href]'); if(!a) return; var href = a.getAttribute('href'); if(!href) return; var u = new URL(href, location.href); if(u.origin !== location.origin) return; ev.preventDefault(); ev.stopPropagation(); go(u.href); }catch(e){} }, true);
+        // Downgrade history API to full navigations (prevents client routers from flipping to 404)
+        try{ var _ps = history.pushState; history.pushState = function(s,t,u){ try{ if(u!=null){ go(u); return; } }catch(e){} try{ return _ps.apply(this, arguments); }catch(e){} } }catch(e){}
+        try{ var _rs = history.replaceState; history.replaceState = function(s,t,u){ try{ if(u!=null){ go(u); return; } }catch(e){} try{ return _rs.apply(this, arguments); }catch(e){} } }catch(e){}
+      }catch(e){}
       // Remove common CMP containers and Trusted Shops badge
       rm('#onetrust-banner-sdk'); rm('#usercentrics-root'); rm('#CybotCookiebotDialog');
       rm('div[id^="sp_message_container_],.sp-message-container,.cm-wrapper,.cm__container,.cc-window,.cookie-consent,.cookieconsent,.cookiebar,div[id*="cookie"],div[class*="cookie"],div[id*="consent"],div[class*="consent"]');
@@ -664,12 +856,31 @@ app.get(/.*/, (req, res, next) => {
       }catch(e){}})();</script>`;
     }
     const fullInject = injectTag + (payInject||'');
-    if (html.includes('</head>')) html = html.replace('</head>', fullInject + '\n</head>');
-    else if (html.includes('<body')) html = html.replace('<body', '<body>' + fullInject);
+    // If scripts are disabled, also inject CSS to unhide SSR and hide skeletons/overlays
+    let cssPatch = '';
+    if (DISABLE_SPA_SCRIPTS) {
+      cssPatch = '<style id="__archive_css_patch">\n'
+        + 'html,body{opacity:1!important;visibility:visible!important;filter:none!important;}\n'
+        + '/* Hide skeletons/placeholders */\n'
+        + '[class*="skeleton"],[class*="placeholder"],[class*="shimmer"],.skeleton,.placeholder,.shimmer{display:none!important;}\n'
+        + '/* Unhide common content containers */\n'
+        + '.plp,.plp-grid,.ProductList,.Products,[data-component="ProductList"],[id*="product"],[class*="product-list"],[class*="plp-grid"],[class*="results"],.ais-InfiniteHits,.ais-Hits{opacity:1!important;visibility:visible!important;filter:none!important;}\n'
+        + '/* Remove common overlay containers */\n'
+        + '[id*="overlay"],[class*="overlay"],.ts-trustbadge,#onetrust-banner-sdk,#usercentrics-root{display:none!important;}\n'
+        + '</style>\n';
+    }
+    // Prefer to inject at the very start of <head> so it runs before site scripts/styles
+    if (/\<head[^>]*\>/i.test(html)) html = html.replace(/\<head[^>]*\>/i, function(m){ return m + '\n' + cssPatch + fullInject + '\n'; });
+    else if (html.includes('</head>')) html = html.replace('</head>', cssPatch + fullInject + '\n</head>');
+    else if (html.includes('<body')) html = html.replace('<body', '<body>' + cssPatch + fullInject);
     else html += fullInject;
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
+    if (DISABLE_SPA_SCRIPTS) {
+      // Final safety net: block all scripts via CSP so nothing can execute
+      res.setHeader('Content-Security-Policy', "script-src 'none'; object-src 'none'; base-uri 'self';");
+    }
     return res.send(html);
   } catch (e) {
     console.error('[SERVER_ERR] inject/send error', e);
